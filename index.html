@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign In | Mateo University</title>
+  <link rel="icon" href="Logo.png">
+  <link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+  <!-- Login card, centered on the page -->
+  <div class="center card stack">
+    <div style="text-align:center">
+      <span class="logo-img lg"><img src="Logo.png" alt="Mateo University"></span>
+      <h2>Institutional Exam Portal</h2>
+      <p class="muted">Sign in with your institutional credentials</p>
+    </div>
+
+    <!-- Quick-fill buttons for testing: they just fill the form, they don't log in by themselves -->
+    <div class="row">
+      <button class="btn ghost" onclick="fill('student1')">Student</button>
+      <button class="btn ghost" onclick="fill('faculty1')">Faculty</button>
+      <button class="btn ghost" onclick="fill('admin1')">Admin</button>
+    </div>
+
+    <form id="form">
+      <label>Username</label><input id="u" required placeholder="e.g. student1">
+      <label>Password</label><input id="p" type="password" required placeholder="password">
+      <p id="err" class="err hidden"></p>
+      <button class="btn" style="width:100%;margin-top:16px">Sign In</button>
+    </form>
+  </div>
+
+  <script src="data.js"></script>
+  <script>
+    // Fills the username/password fields (used by the quick-fill buttons above)
+    const fill = u => { $('u').value = u; $('p').value = 'password'; };
+
+    // Handles the login form
+    $('form').onsubmit = e => {
+      e.preventDefault(); // stop the page from reloading
+
+      const user = DB.load().users.find(x =>
+        x.username === $('u').value.trim() &&
+        x.password === $('p').value.trim()
+      );
+
+      if (!user) {
+        $('err').textContent = 'Invalid username or password.';
+        $('err').classList.remove('hidden');
+        return;
+      }
+
+      Session.set(user);          // remember who's logged in
+      location.href = HOME[user.role]; // send them to their dashboard
+    };
+  </script>
+</body>
+</html>

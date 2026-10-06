@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Student Dashboard | ExamPortal</title>
+  <link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+  <div class="wrap">
+    <h1>Student Dashboard</h1>
+    <p class="muted">Select a subject to view assigned assessments.</p>
+
+    <!-- Tab buttons; tab(name) in data.js shows/hides the matching <section> below -->
+    <div class="tabs">
+      <button data-tab="subjects" class="active" onclick="tab('subjects')">My Subjects</button>
+      <button data-tab="history" onclick="tab('history')">Performance</button>
+      <button data-tab="guide" onclick="tab('guide')">Guidelines & FAQ</button>
+    </div>
+
+    <section id="subjects" class="pane grid active"></section> <!-- filled in by JS below -->
+    <section id="history" class="pane stack"></section>        <!-- filled in by JS below -->
+
+    <section id="guide" class="pane card stack">
+      <h2>Examination Guidelines & FAQ</h2>
+      <ul>
+        <li>Do not switch tabs or minimize the browser during an exam.</li>
+        <li>The timer keeps running even if you refresh or close the page. Reopen the exam from your dashboard to resume.</li>
+        <li>Answers are saved as you go.</li>
+        <li>Some exams need an access code from your instructor.</li>
+        <li>Each exam has a limited number of attempts. Ask your instructor if you need a retake.</li>
+        <li>Where your instructor allows it, you can review your answers after submitting.</li>
+      </ul>
+    </section>
+  </div>
+
+  <script src="data.js"></script>
+  <script>
+    const user = requireRole('student'); // kicks non-students back to the login page
+    const db = DB.load();
+    renderNav(user);
+
+    /* ---------- "My Subjects" tab ---------- */
+    // One card per subject the student is enrolled in, listing that subject's exams
+    $('subjects').innerHTML = db.subjects
+      .filter(s => s.studentIds.includes(user.id))
+      .map(s => `
+        <div class="card stack">
+          <span class="badge">${s.code}</span>
+          <h3>${esc(s.name)}</h3>
+          <p class="muted">${esc(s.description)}</p>
+          ${db.exams.filter(e => e.subjectId === s.id).map(e => {
+            const used = Attempts.used(db, user.id, e.id);
+            const allowed = Attempts.allowed(db, user.id, e);
+            const left = Attempts.left(db, user.id, e);
+            const running = Run.get(user.id, e.id); // is there an exam saved mid-progress?
+
+            // Decide which button to show: Resume > Start/Start Again > No attempts left
+            let action = `<button class="btn" disabled>No attempts left</button>`;
+            if (running) action = `<a class="btn ok" href="exam.html?id=${e.id}">Resume</a>`;
+            else if (left > 0) action = `<a class="btn" href="exam.html?id=${e.id}">Start${used ? ' Again' : ''}</a>`;
+
+            return `
+              <div class="row">
+                <div>
+                  <b>${esc(e.title)}</b>
+                  <div class="muted">${e.duration} min · ${e.questions.length} questions · Attempts ${used}/${allowed}${e.password ? ' · 🔒 Access code' : ''}</div>
+                  ${running ? '<div class="chip warn" style="display:inline-block;margin-top:4px">In progress</div>' : ''}
+                </div>
+                ${action}
+              </div>`;
+          }).join('') || '<p class="muted">No assessments yet.</p>'}
+        </div>`)
+      .join('') || '<p class="muted">You are not enrolled in any subjects yet.</p>';
+
+    /* ---------- "Performance" tab ---------- */
+    // Every past attempt by this student, most recent first
+    const mine = db.attempts
+      .filter(a => a.studentId === user.id)
+      .sort((a, b) => b.date.localeCompare(a.date));
+
+    $('history').innerHTML = mine.map(a => {
+      const ex = db.exams.find(e => e.id === a.examId);
+
+      // Only show a review link if: the exam still exists, this attempt saved its
+      // answers (older attempts might not have), and review is currently allowed.
+      let review = '';
+      if (ex && a.detail) {
+        review = ex.allowReview
+          ? `<a class="btn sm" href="review.html?attempt=${a.id}">Review Answers</a>`
+          : '<span class="chip">Review off</span>';
+      }
+
+      return `<div class="card row">
+        <div><b>${esc(ex ? ex.title : 'Assessment')}</b><div class="muted">Completed: ${a.date}</div></div>
+        <div class="actions">
+          <div style="text-align:right"><b>${a.score}/${a.total} (${a.percentage}%)</b>
+            <div class="${a.status === 'Passed' ? 'pass' : 'fail'}">${a.status}</div></div>
+          ${review}
+        </div>
+      </div>`;
+    }).join('') || '<p class="muted">No past examination records found.</p>';
+  </script>
+</body>
+</html>

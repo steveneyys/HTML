@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Faculty | ExamPortal</title>
+  <link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+  <div class="wrap">
+    <div class="row">
+      <h1>Faculty Command Center</h1>
+      <button class="btn" onclick="createExam()">+ Create New Exam</button>
+    </div>
+
+    <div class="tabs">
+      <button data-tab="courses" class="active" onclick="tab('courses')">Courses & Exams</button>
+      <button data-tab="students" onclick="closeStudent(); tab('students')">Students</button>
+      <button data-tab="retakes" onclick="tab('retakes')">Retakes</button>
+      <button data-tab="subs" onclick="tab('subs')">Submissions</button>
+      <button data-tab="editor" onclick="tab('editor')">Exam Editor</button>
+    </div>
+
+    <!-- Courses: cards of the faculty member's subjects, listing each subject's exams -->
+    <section id="courses" class="pane grid active"></section>
+
+    <!-- Students: a list, plus a per-student detail view that replaces the list in place -->
+    <section id="students" class="pane">
+      <div id="students-list" class="card">
+        <table>
+          <thead><tr><th>Student</th><th>Username</th><th>Attempts</th><th>Best</th><th>Average</th><th></th></tr></thead>
+          <tbody id="students-body"></tbody>
+        </table>
+      </div>
+
+      <div id="student-detail" class="hidden stack">
+        <button class="btn ghost" onclick="closeStudent()">&larr; Back to Students</button>
+        <div class="card">
+          <h2 id="d-name" style="margin:0"></h2>
+          <p id="d-user" class="muted" style="margin:4px 0 0"></p>
+        </div>
+        <div class="grid">
+          <div class="card"><div class="muted">ATTEMPTS</div><div id="d-attempts" class="stat"></div></div>
+          <div class="card"><div class="muted">AVERAGE SCORE</div><div id="d-avg" class="stat"></div></div>
+          <div class="card"><div class="muted">PASSED / FAILED</div><div id="d-pf" class="stat"></div></div>
+        </div>
+        <div class="card">
+          <h3 style="margin-top:0">Exam Attempts</h3>
+          <table>
+            <thead><tr><th>Assessment</th><th>Course</th><th>Score</th><th>%</th><th>Status</th><th>Flagged</th><th>Date</th></tr></thead>
+            <tbody id="d-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Retakes: grant extra attempts to a student for a specific exam -->
+    <section id="retakes" class="pane stack">
+      <div class="card stack">
+        <h3 style="margin:0">Allow a Student to Retake an Exam</h3>
+        <p class="muted" style="margin:0">Each click adds one extra attempt on top of the exam's normal limit.</p>
+        <div class="grid">
+          <div><label>Student</label><select id="rt-student" onchange="rtInfo()"></select></div>
+          <div><label>Exam</label><select id="rt-exam" onchange="rtInfo()"></select></div>
+        </div>
+        <div class="row">
+          <span id="rt-info" class="muted"></span>
+          <button class="btn ok" onclick="grantFromForm()">Allow +1 Attempt</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-top:0">Attempt Status</h3>
+        <table>
+          <thead><tr><th>Student</th><th>Exam</th><th>Used</th><th>Allowed</th><th>Left</th><th></th></tr></thead>
+          <tbody id="rt-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Submissions: every completed attempt across the faculty member's exams -->
+    <section id="subs" class="pane card">
+      <table>
+        <thead><tr><th>Student</th><th>Assessment</th><th>Score</th><th>%</th><th>Status</th><th>Date</th></tr></thead>
+        <tbody id="subs-body"></tbody>
+      </table>
+    </section>
+
+    <!-- Editor: fills up with the exam-editing form when an exam is opened -->
+    <section id="editor" class="pane"></section>
+  </div>
+
+  <script src="data.js"></script>
+  <script>
+    const user = requireRole('faculty');
+    const db = DB.load();
+    renderNav(user, [['faculty.html', 'Dashboard'], ['assign.html', 'Assign Subjects']]);
+
+    let ed = null;          // the exam currently open in the editor (a working copy, not saved yet)
+    let qi = 0;              // index of the question currently shown in the editor
+    let isNew = false;       // true if "ed" hasn't been saved as a real exam yet
+    const EDITOR_EMPTY = '<p class="muted">Choose an exam to edit from the Courses tab, or create a new one.</p>';
+
+    /* ---------- Helpers for "what belongs to this faculty member" ---------- */
+    const mySubjects = () => db.subjects.filter(s => s.facultyIds.includes(user.id));
+    const myExams    = () => db.exams.filter(e => mySubjects().some(s => s.id === e.subjectId));
+    const myAttempts = () => { const ids = myExams().map(e => e.id); return db.attempts.filter(a => ids.includes(a.examId)); };
+    const subjectOf  = e => db.subjects.find(s => s.id === e.subjectId);
+    const avgOf = list => list.length ? Math.round(list.reduce((t, a) => t + a.percentage, 0) / list.length) : null;
+
+    // Every student who's either enrolled in one of this faculty's subjects, or has
+    // an attempt on one of their exams (covers students removed after attempting)
+    function myStudents() {
+      const ids = new Set(mySubjects().flatMap(s => s.studentIds));
+      myAttempts().forEach(a => ids.add(a.studentId));
+      return db.users.filter(u => u.role === 'student' && ids.has(u.id));
+    }
+
+    // Redraws every tab. Called after anything that could affect more than one tab's data.
+    function refreshAll() {
+      drawCourses();
+      drawStudents();
+      drawSubs();
+      fillRetakeSelects();
+      drawRetakeTable();
+    }
+
+    /* ---------- Courses tab ---------- */
+    function drawCourses() {
+      $('courses').innerHTML = mySubjects().map(s => `
+        <div class="card stack">
+          <span class="badge">${s.code}</span>
+          <h3>${esc(s.name)}</h3>
+          ${db.exams.filter(e => e.subjectId === s.id).map(e => `
+            <div class="row">
+              <div>
+                <b>${esc(e.title)}</b>
+                <div class="muted">${e.questions.length} questions · ${e.duration} mins · ${e.maxAttempts} attempt${e.maxAttempts > 1 ? 's' : ''}${e.shuffle ? ' · Shuffled' : ''}${e.password ? ' · 🔒 Code' : ''}${e.allowReview ? '' : ' · Review off'}</div>
+              </div>
+              <div class="actions">
+                <button class="btn sm" onclick="openEditor(${e.id})">Edit</button>
+                <button class="btn danger sm" onclick="deleteExam(${e.id})">Delete</button>
+              </div>
+            </div>`).join('') || '<p class="muted">No assessments yet.</p>'}
+        </div>`).join('') || '<p class="muted">You have no assigned subjects.</p>';
+    }
+
+    /* ---------- Submissions tab ---------- */
+    function drawSubs() {
+      $('subs-body').innerHTML = myAttempts().map(a => {
+        const st = db.users.find(u => u.id === a.studentId);
+        const ex = db.exams.find(e => e.id === a.examId);
+        return `<tr>
+          <td><button class="link" onclick="viewStudent(${a.studentId})">${esc(st ? st.name : 'Unknown')}</button></td>
+          <td>${esc(ex ? ex.title : 'Assessment')}</td>
+          <td>${a.score}/${a.total}</td>
+          <td>${a.percentage}%</td>
+          <td class="${a.status === 'Passed' ? 'pass' : 'fail'}">${a.status}</td>
+          <td>${a.date}</td>
+        </tr>`;
+      }).join('') || '<tr><td colspan="6" class="muted">No submissions yet.</td></tr>';
+    }
+
+    /* ---------- Students tab ---------- */
+    function drawStudents() {
+      $('students-body').innerHTML = myStudents().map(s => {
+        const at = myAttempts().filter(a => a.studentId === s.id);
+        const best = at.length ? Math.max(...at.map(a => a.percentage)) + '%' : '—';
+        const avg = avgOf(at);
+        return `<tr>
+          <td><b>${esc(s.name)}</b></td>
+          <td class="muted">${esc(s.username)}</td>
+          <td>${at.length}</td>
+          <td>${best}</td>
+          <td>${avg !== null ? avg + '%' : '—'}</td>
+          <td style="text-align:right"><button class="btn sm" onclick="viewStudent(${s.id})">View Attempts</button></td>
+        </tr>`;
+      }).join('') || '<tr><td colspan="6" class="muted">No students found.</td></tr>';
+    }
+
+    // Swaps the student list for a single student's detail view
+    function viewStudent(id) {
+      const s = db.users.find(u => u.id === id);
+      if (!s) return;
+
+      const at = myAttempts().filter(a => a.studentId === id).sort((a, b) => b.date.localeCompare(a.date));
+      const passed = at.filter(a => a.status === 'Passed').length;
+      const avg = avgOf(at);
+
+      $('d-name').textContent = s.name;
+      $('d-user').textContent = '@' + s.username;
+      $('d-attempts').textContent = at.length;
+      $('d-avg').textContent = avg !== null ? avg + '%' : '—';
+      $('d-pf').innerHTML = `<span class="pass">${passed}</span> / <span class="fail">${at.length - passed}</span>`;
+
+      $('d-body').innerHTML = at.map(a => {
+        const ex = db.exams.find(e => e.id === a.examId);
+        const sub = ex ? subjectOf(ex) : null;
+        return `<tr>
+          <td>${esc(ex ? ex.title : 'Assessment')}</td>
+          <td>${sub ? sub.code : '—'}</td>
+          <td>${a.score}/${a.total}</td>
+          <td>${a.percentage}%</td>
+          <td class="${a.status === 'Passed' ? 'pass' : 'fail'}">${a.status}</td>
+          <td>${a.flagged !== undefined ? '⚑ ' + a.flagged : '—'}</td>
+          <td>${a.date}</td>
+        </tr>`;
+      }).join('') || '<tr><td colspan="7" class="muted">This student has no attempts yet.</td></tr>';
+
+      $('students-list').classList.add('hidden');
+      $('student-detail').classList.remove('hidden');
+      tab('students');
+    }
+
+    function closeStudent() {
+      $('student-detail').classList.add('hidden');
+      $('students-list').classList.remove('hidden');
+    }
+
+    /* ---------- Retakes tab ---------- */
+    // Fills the two dropdowns, trying to keep whatever was already selected
+    function fillRetakeSelects() {
+      const st = $('rt-student').value, ex = $('rt-exam').value;
+      $('rt-student').innerHTML = myStudents().map(s => `<option value="${s.id}">${esc(s.name)} (${esc(s.username)})</option>`).join('');
+      $('rt-exam').innerHTML = myExams().map(e => `<option value="${e.id}">${esc(e.title)} (${subjectOf(e).code})</option>`).join('');
+      if (st) $('rt-student').value = st;
+      if (ex) $('rt-exam').value = ex;
+      rtInfo();
+    }
+
+    // Shows "Used X of Y attempts" next to the dropdowns
+    function rtInfo() {
+      const sid = +$('rt-student').value, eid = +$('rt-exam').value;
+      const e = db.exams.find(x => x.id === eid);
+      $('rt-info').textContent = sid && e
+        ? `Used ${Attempts.used(db, sid, eid)} of ${Attempts.allowed(db, sid, e)} attempts.`
+        : '';
+    }
+
+    // One row per student+exam combination that's relevant (enrolled, or has attempted it)
+    function drawRetakeTable() {
+      const rows = [];
+      myExams().forEach(e => {
+        const sub = subjectOf(e);
+        myStudents().forEach(s => {
+          const used = Attempts.used(db, s.id, e.id);
+          if (!sub.studentIds.includes(s.id) && !used) return; // skip irrelevant pairs
+          const allowed = Attempts.allowed(db, s.id, e);
+          const left = Attempts.left(db, s.id, e);
+          const bonus = Attempts.bonus(db, s.id, e.id);
+          rows.push(`<tr>
+            <td><b>${esc(s.name)}</b></td>
+            <td>${esc(e.title)}</td>
+            <td>${used}</td>
+            <td>${allowed}</td>
+            <td class="${left ? 'pass' : 'fail'}">${left}</td>
+            <td style="text-align:right"><div class="actions" style="justify-content:flex-end">
+              <button class="btn sm" onclick="grantRetake(${s.id},${e.id},1)">+1 Attempt</button>
+              ${bonus ? `<button class="btn ghost sm" onclick="grantRetake(${s.id},${e.id},-1)">−1</button>` : ''}
+            </div></td>
+          </tr>`);
+        });
+      });
+      $('rt-body').innerHTML = rows.join('') || '<tr><td colspan="6" class="muted">No enrolled students yet.</td></tr>';
+    }
+
+    // Adds or removes one granted retake for a student+exam pair
+    function grantRetake(sid, eid, delta) {
+      let r = db.retakes.find(x => x.studentId === sid && x.examId === eid);
+      if (!r) {
+        if (delta < 0) return; // nothing to remove
+        r = { studentId: sid, examId: eid, granted: 0 };
+        db.retakes.push(r);
+      }
+      r.granted = Math.max(0, r.granted + delta);
+      DB.save(db);
+      drawRetakeTable();
+      rtInfo();
+    }
+
+    function grantFromForm() {
+      const sid = +$('rt-student').value, eid = +$('rt-exam').value;
+      if (!sid || !eid) return alert('Choose a student and an exam.');
+      grantRetake(sid, eid, 1);
+    }
+
+    /* ==========================================================
+       EXAM EDITOR
+       ========================================================== */
+
+    // Starts a brand-new, unsaved exam and opens it in the editor
+    function createExam() {
+      const subs = mySubjects();
+      if (!subs.length) return alert('You have no assigned subjects.');
+      ed = {
+        id: Date.now(), subjectId: subs[0].id, title: 'New Exam',
+        duration: 30, passingGrade: 60, maxAttempts: 1, shuffle: false, allowReview: true, password: '',
+        questions: [Q.make('mcq', 'Sample Question 1?')]
+      };
+      isNew = true;
+      qi = 0;
+      drawEditor();
+      tab('editor');
+    }
+
+    // Opens an existing exam in the editor. Works on a COPY (structuredClone) so
+    // nothing is actually changed until "Save Exam" is clicked.
+    function openEditor(id) {
+      ed = structuredClone(db.exams.find(e => e.id === id));
+      isNew = false;
+      qi = 0;
+      drawEditor();
+      tab('editor');
+    }
+
+    function closeEditor() {
+      ed = null;
+      isNew = false;
+      $('editor').innerHTML = EDITOR_EMPTY;
+    }
+
+    // Builds the right-hand "answer editing" panel — different fields depending on question type
+    function typeEditor(q) {
+      if (q.type === 'identification') {
+        return `
+          <label>Accepted answers (one per line, not case-sensitive)</label>
+          <textarea rows="4" oninput="ed.questions[qi].answers=this.value.split('\\n')">${esc(q.answers.join('\n'))}</textarea>`;
+      }
+
+      if (q.type === 'dragdrop') {
+        return `
+          <label>Pairs (item &rarr; correct match)</label>
+          ${q.pairs.map((p, n) => `
+            <div class="row" style="margin-top:8px;flex-wrap:nowrap">
+              <input placeholder="Item" value="${esc(p.left)}" oninput="ed.questions[qi].pairs[${n}].left=this.value">
+              <span>&rarr;</span>
+              <input placeholder="Match" value="${esc(p.right)}" oninput="ed.questions[qi].pairs[${n}].right=this.value">
+              <button class="btn ghost sm" onclick="delPair(${n})">&times;</button>
+            </div>`).join('')}
+          <button class="btn ghost sm" style="margin-top:10px" onclick="addPair()">+ Add Pair</button>`;
+      }
+
+      // mcq and checkbox share this editor; only the input type (radio vs checkbox) differs
+      const multi = q.type === 'checkbox';
+      return `
+        <label>Options (${multi ? 'tick every correct answer' : 'select the correct one'})</label>
+        ${q.options.map((o, n) => `
+          <div class="row" style="margin-top:8px;flex-wrap:nowrap">
+            <input type="${multi ? 'checkbox' : 'radio'}" style="width:auto" name="c" ${o.isCorrect ? 'checked' : ''}
+                   onchange="${multi ? `toggleCorrect(${n},this.checked)` : `setCorrect(${n})`}">
+            <input value="${esc(o.text)}" oninput="ed.questions[qi].options[${n}].text=this.value">
+            <button class="btn ghost sm" onclick="delOpt(${n})">&times;</button>
+          </div>`).join('')}
+        <button class="btn ghost sm" style="margin-top:10px" onclick="addOpt()">+ Add Option</button>`;
+    }
+
+    // Draws the whole editor: exam-level settings on the left, the current question on the right
+    function drawEditor() {
+      const q = ed.questions[qi];
+      $('editor').innerHTML = `
+        <div class="row" style="margin-bottom:16px">
+          <h2 style="margin:0">${esc(ed.title)}${isNew ? ' <span class="chip warn">Unsaved</span>' : ''}</h2>
+          <div class="actions">
+            ${isNew
+              ? `<button class="btn ghost" onclick="closeEditor(); tab('courses')">Discard</button>`
+              : `<button class="btn danger" onclick="deleteExam(ed.id)">Delete Exam</button>`}
+            <button class="btn ok" onclick="saveExam()">Save Exam</button>
+          </div>
+        </div>
+
+        <div class="grid">
+          <div class="card">
+            <label>Exam Title</label>
+            <input value="${esc(ed.title)}" oninput="ed.title=this.value">
+
+            <label>Subject</label>
+            <select onchange="ed.subjectId=+this.value">
+              ${mySubjects().map(s => `<option value="${s.id}" ${s.id === ed.subjectId ? 'selected' : ''}>${s.code} - ${esc(s.name)}</option>`).join('')}
+            </select>
+
+            <label>Duration (minutes)</label>
+            <input type="number" min="1" value="${ed.duration}" oninput="ed.duration=Math.max(1,+this.value||30)">
+
+            <label>Passing Grade (%)</label>
+            <input type="number" min="1" max="100" value="${ed.passingGrade || 60}" oninput="ed.passingGrade=+this.value||60">
+
+            <label>Attempts Allowed Per Student</label>
+            <input type="number" min="1" value="${ed.maxAttempts}" oninput="ed.maxAttempts=Math.max(1,+this.value||1)">
+
+            <label>Access Code (optional)</label>
+            <input value="${esc(ed.password || '')}" placeholder="Leave blank for no code" autocomplete="off" oninput="ed.password=this.value.trim()">
+
+            <label class="agree" style="margin-top:16px">
+              <input type="checkbox" ${ed.shuffle ? 'checked' : ''} onchange="ed.shuffle=this.checked">
+              Shuffle question order for each attempt
+            </label>
+
+            <label class="agree" style="margin-top:12px">
+              <input type="checkbox" ${ed.allowReview ? 'checked' : ''} onchange="ed.allowReview=this.checked">
+              Let students review their answers after submitting
+            </label>
+
+            <label>Questions</label>
+            ${ed.questions.map((x, n) => `
+              <button class="btn ${n === qi ? '' : 'ghost'}" style="width:100%;margin-top:6px;text-align:left" onclick="qi=${n};drawEditor()">
+                Q${n + 1}. ${esc(x.text.slice(0, 22))} <span class="chip" style="float:right">${Q.types[x.type]}</span>
+              </button>`).join('')}
+            <button class="btn ghost" style="width:100%;margin-top:10px" onclick="addQ()">+ Add Question</button>
+          </div>
+
+          <div class="card">
+            <div class="row"><h3>Question ${qi + 1}</h3><button class="btn danger sm" onclick="delQ()">Delete Question</button></div>
+
+            <label>Question Type</label>
+            <select onchange="setType(this.value)">
+              ${Object.entries(Q.types).map(([k, v]) => `<option value="${k}" ${q.type === k ? 'selected' : ''}>${v}</option>`).join('')}
+            </select>
+
+            <label>Prompt</label>
+            <textarea rows="3" oninput="ed.questions[qi].text=this.value">${esc(q.text)}</textarea>
+
+            ${typeEditor(q)}
+          </div>
+        </div>`;
+    }
+
+    // Changes the current question's type. Keeps the prompt text, and keeps
+    // mcq<->checkbox options where it can, so switching types doesn't lose work.
+    function setType(t) {
+      const old = ed.questions[qi];
+      if (old.type === t) return;
+      const nq = Q.make(t, old.text);
+      nq.id = old.id; // keep the same id so the question's identity doesn't change
+
+      if ((t === 'mcq' || t === 'checkbox') && old.options) {
+        nq.options = old.options.map(o => ({ ...o }));
+        const first = Math.max(0, nq.options.findIndex(o => o.isCorrect));
+        if (t === 'mcq') nq.options.forEach((o, k) => o.isCorrect = k === first); // mcq allows only ONE correct option
+        else if (!nq.options.some(o => o.isCorrect)) nq.options[0].isCorrect = true; // checkbox needs at least one
+      }
+      ed.questions[qi] = nq;
+      drawEditor();
+    }
+
+    function setCorrect(n) { ed.questions[qi].options.forEach((o, k) => o.isCorrect = k === n); } // mcq: only one can be correct
+    function toggleCorrect(n, on) { ed.questions[qi].options[n].isCorrect = on; }                  // checkbox: any number can be correct
+    function addOpt() { ed.questions[qi].options.push({ id: 'o_' + Date.now(), text: 'New Option' }); drawEditor(); }
+    function delOpt(n) {
+      if (ed.questions[qi].options.length <= 2) return alert('Questions must have at least 2 options.');
+      ed.questions[qi].options.splice(n, 1);
+      drawEditor();
+    }
+
+    function addPair() { ed.questions[qi].pairs.push({ id: 'p_' + Date.now(), left: '', right: '' }); drawEditor(); }
+    function delPair(n) {
+      if (ed.questions[qi].pairs.length <= 2) return alert('Drag and drop needs at least 2 pairs.');
+      ed.questions[qi].pairs.splice(n, 1);
+      drawEditor();
+    }
+
+    function addQ() {
+      ed.questions.push(Q.make('mcq'));
+      qi = ed.questions.length - 1;
+      drawEditor();
+    }
+    function delQ() {
+      if (ed.questions.length <= 1) return alert('Exams must have at least 1 question.');
+      ed.questions.splice(qi, 1);
+      qi = Math.max(0, qi - 1);
+      drawEditor();
+    }
+
+    // Validates every question, then adds the exam to db.exams (if new) or
+    // overwrites it (if editing an existing one).
+    function saveExam() {
+      if (!ed.title.trim()) return alert('Please enter an exam title.');
+
+      for (let n = 0; n < ed.questions.length; n++) {
+        const x = ed.questions[n];
+        if (x.type === 'identification') x.answers = x.answers.map(a => a.trim()).filter(Boolean);
+        const problem = Q.problem(x);
+        if (problem) {
+          qi = n;
+          drawEditor(); // jump to the problem question so the faculty member can see it
+          return alert(`Question ${n + 1} ${problem}.`);
+        }
+      }
+
+      const i = db.exams.findIndex(e => e.id === ed.id);
+      if (i === -1) db.exams.push(ed); else db.exams[i] = ed;
+      DB.save(db);
+      closeEditor();
+      refreshAll();
+      tab('courses');
+      alert('Exam saved.');
+    }
+
+    function deleteExam(id) {
+      const ex = db.exams.find(e => e.id === id);
+      if (!ex) return;
+      if (!confirm(`Delete "${ex.title}"?\n\nThis also removes its student attempts and retake permissions. This cannot be undone.`)) return;
+
+      // Clean up everything connected to this exam, not just the exam itself
+      db.exams = db.exams.filter(e => e.id !== id);
+      db.attempts = db.attempts.filter(a => a.examId !== id);
+      db.retakes = db.retakes.filter(r => r.examId !== id);
+      DB.save(db);
+
+      if (ed && ed.id === id) closeEditor();
+      refreshAll();
+      tab('courses');
+    }
+
+    /* ---------- Init ---------- */
+    closeEditor();
+    refreshAll();
+  </script>
+</body>
+</html>
