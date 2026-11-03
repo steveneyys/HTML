@@ -645,3 +645,263 @@ th,td
   color: #fff;
   border-color: var(--ink);
 }
+
+/* ---------- 14. CONFIRMATION POPUP ---------- */
+
+/* Dark backdrop that covers the page. Hidden until .open is added. */
+.modal 
+{
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(15, 23, 42, 0.55);
+}
+
+.modal.open 
+{
+  display: flex;
+}
+
+/* The white popup box */
+.modal-box 
+{
+  
+  width: 100%;
+  max-width: 460px;
+  padding: 28px;
+  background: #fff;
+  border: 2px solid var(--border);
+  border-radius: 10px;
+}
+
+/* Label / value rows inside the popup */
+.facts 
+{
+  margin: 16px 0;
+  border: 2px solid var(--bg-alt);
+  border-radius: var(--radius-lg);
+}
+
+.fact 
+{
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  font-size: 14px;
+  border-bottom: 2px solid var(--bg-alt);
+}
+
+.fact:last-child 
+{
+  border-bottom: 0;
+}
+
+.fact span 
+{
+  color: var(--muted);
+}
+
+.fact b 
+{
+  text-align: right;
+}
+
+/* ---------- 15. MOBILE & TABLET ---------- */
+
+/* Tablet and below: the exam screen becomes one column.
+   The timer card jumps to the top and stays pinned while the student scrolls,
+   and the question grid moves below the question. */
+@media (max-width: 800px) {
+  .exam-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  /* Dissolve the right-hand column so its two cards can be reordered */
+  .exam-layout > .stack:last-child {
+    display: contents;
+  }
+
+  .exam-layout > .stack:last-child > * {
+    margin-top: 0;
+  }
+
+  /* Timer card: compact bar pinned to the top */
+  .exam-layout > .stack:last-child > .card:first-child {
+    order: -1;
+    position: sticky;
+    top: 0;
+    z-index: 4;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 14px;
+    border-radius: var(--radius-lg);
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
+  }
+
+  .exam-layout > .stack:last-child > .card:first-child p {
+    margin: 0;
+  }
+
+  /* Question grid card: after the question */
+  .exam-layout > .stack:last-child > .card:last-child {
+    order: 2;
+  }
+
+  .exam-layout .timer {
+    font-size: 28px;
+  }
+}
+
+
+/* Phones */
+@media (max-width: 640px) {
+
+  /* --- Page spacing and text sizes --- */
+  .wrap {
+    padding: 20px 16px;
+  }
+
+  h1 { font-size: 26px; }
+  h2 { font-size: 20px; }
+  h3 { font-size: 17px; }
+
+  .card {
+    padding: 16px;
+  }
+
+  .stat {
+    font-size: 28px;
+  }
+
+  /* One column everywhere */
+  .grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* --- Navigation bar: wraps instead of overflowing, and is no longer pinned --- */
+  .nav {
+    position: static;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    height: auto;
+    padding: 10px 16px;
+  }
+
+  .brand {
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    font-size: 15px;
+  }
+
+  .nav a {
+    margin-left: 0;
+    font-size: 13px;
+  }
+
+  .logo-img {
+    width: 36px;
+    height: 36px;
+  }
+
+  .nav .row {
+    flex-wrap: nowrap;
+    gap: 8px;
+    margin-left: auto;
+  }
+
+  /* User name: one line, cut off with "..." if it is too long. Role label is hidden. */
+  .nav .row > span {
+    max-width: 120px;
+    overflow: hidden;
+    font-size: 13px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .nav .row > span .muted {
+    display: none;
+  }
+
+  .nav .row .btn {
+    min-height: 36px;
+    padding: 6px 12px;
+    font-size: 13px;
+  }
+
+  /* --- Buttons and tabs: big enough to tap --- */
+  .btn {
+    min-height: 44px;
+  }
+
+  .btn.sm {
+    min-height: 38px;
+    padding: 8px 12px;
+  }
+
+  .tabs button {
+    padding: 10px 12px;
+    font-size: 14px;
+  }
+
+  /* --- Tables: scroll sideways inside their card instead of spilling out --- */
+  table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  th,
+  td {
+    padding: 10px;
+    white-space: nowrap;
+  }
+
+  /* --- Login page --- */
+  .center {
+    width: calc(100% - 32px);
+    margin: 24px auto;
+  }
+
+  /* --- Exam screen --- */
+  .qgrid {
+    grid-template-columns: repeat(6, 1fr);
+  }
+
+  .opt {
+    padding: 12px;
+  }
+
+  /* Drag and drop: item above, slot below */
+  .match {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .tile {
+    padding: 10px 14px;
+  }
+
+  /* Confirmation page rows: question on top, status and Review button underneath */
+  .qitem {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .qmeta {
+    flex-wrap: wrap;
+  }
+
+  /* --- Start popup --- */
+  .modal-box {
+    padding: 20px;
+  }
+}

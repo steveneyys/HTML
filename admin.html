@@ -17,7 +17,6 @@
       <button data-tab="users" class="active" onclick="tab('users')">User Accounts</button>
       <button data-tab="subjects" onclick="tab('subjects')">Subjects</button>
       <button data-tab="assign" onclick="tab('assign')">Faculty Assignments</button>
-      <button data-tab="proctor" onclick="tab('proctor')">Live Proctoring</button>
       <button data-tab="analytics" onclick="tab('analytics')">Analytics</button>
     </div>
 
@@ -157,11 +156,6 @@
             : '<div class="muted" style="text-align:right">All faculty assigned</div>'}</td>
         </tr>`;
       }).join('');
-
-      /* Proctoring tab (placeholder: a card per student, no real video) */
-      $('proctor').innerHTML = db.users.filter(u => u.role === 'student').map(s =>
-        `<div class="feed"><div class="row"><b>${esc(s.name)}</b><span class="badge" style="background:#10b981">LIVE</span></div>
-        <div>AI Confidence: 99.4%</div></div>`).join('');
 
       /* Analytics tab */
       const passed = db.attempts.filter(a => a.status === 'Passed').length;
