@@ -1,0 +1,10 @@
+{
+  "name": "exam-portal-local-backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Local Node backend for the Exam Portal and Supabase Postgres connection",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

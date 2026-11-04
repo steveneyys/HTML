@@ -1,458 +1,896 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Live Exam | ExamPortal</title>
   <link rel="stylesheet" href="./css/style.css">
 </head>
+
 <body>
   <div class="wrap">
 
-    <!-- SCREEN 0: ACCESS CODE (only shown if the exam has one, and only before it starts) -->
-    <section id="gate" class="hidden narrow card stack" style="text-align:center">
+    <!-- ACCESS CODE -->
+    <section id="gate"
+      class="hidden narrow card stack"
+      style="text-align:center">
+
       <h1 style="margin-bottom:0">Access Code Required</h1>
-      <p class="muted" style="margin:0">Enter the code from your instructor to begin <b id="g-title"></b>. The timer starts once you continue.</p>
-      <input id="g-code" type="password" placeholder="Access code" autocomplete="off" onkeydown="if(event.key==='Enter')checkCode()">
+
+      <p class="muted" style="margin:0">
+        Enter the code from your instructor to begin
+        <b id="g-title"></b>.
+        The timer starts once you continue.
+      </p>
+
+      <input
+        id="g-code"
+        type="password"
+        placeholder="Access code"
+        autocomplete="off"
+        onkeydown="if(event.key==='Enter')checkCode()"
+      >
+
       <p id="g-err" class="err hidden"></p>
+
       <div class="row">
         <a class="btn ghost" href="student.html">Cancel</a>
         <button class="btn" onclick="checkCode()">Begin Exam</button>
       </div>
     </section>
 
-    <!-- SCREEN 1: LIVE EXAM — one question at a time, with a timer and question grid -->
+    <!-- LIVE EXAM -->
     <section id="live" class="hidden">
       <h1 id="title"></h1>
       <p id="subject" class="muted"></p>
+
       <div class="exam-layout">
         <div class="stack">
           <div class="card">
             <div class="row">
               <span id="badge" class="badge"></span>
+
               <div class="row">
                 <span class="muted">1 Point</span>
-                <button id="flagbtn" class="btn ghost" onclick="toggleFlag()">⚑ Flag for review</button>
+                <button id="flagbtn" class="btn ghost"
+                  onclick="toggleFlag()">
+                  ⚑ Flag for review
+                </button>
               </div>
             </div>
+
             <h2 id="qtext"></h2>
-            <div id="options"></div> <!-- the answer area; its content depends on the question type -->
+            <div id="options"></div>
           </div>
+
           <div class="row">
-            <button id="prev" class="btn ghost" onclick="move(-1)">&larr; Previous</button>
-            <button id="next" class="btn" onclick="move(1)">Next &rarr;</button>
+            <button id="prev" class="btn ghost" onclick="move(-1)">
+              &larr; Previous
+            </button>
+
+            <button id="next" class="btn" onclick="move(1)">
+              Next &rarr;
+            </button>
           </div>
         </div>
 
         <div class="stack">
           <div class="card">
-            <p class="muted" style="text-align:center">TIME REMAINING</p>
+            <p class="muted" style="text-align:center">
+              TIME REMAINING
+            </p>
             <div id="timer" class="timer"></div>
           </div>
+
           <div class="card">
-            <div class="row"><b class="muted">QUESTION GRID</b><span id="count" class="muted"></span></div>
+            <div class="row">
+              <b class="muted">QUESTION GRID</b>
+              <span id="count" class="muted"></span>
+            </div>
+
             <div id="grid" class="qgrid"></div>
-            <button class="btn ok" style="width:100%" onclick="openConfirm()">Finish & Review</button>
+
+            <button class="btn ok" style="width:100%"
+              onclick="openConfirm()">
+              Finish & Review
+            </button>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- SCREEN 2: CONFIRMATION — a summary before the final, irreversible submit -->
+    <!-- CONFIRMATION -->
     <section id="confirm" class="hidden narrow stack">
       <div class="card stack">
         <div class="row">
           <div>
             <h1 style="margin:0">Review Before You Submit</h1>
-            <p class="muted" style="margin:4px 0 0">Check your answers. Once submitted, you cannot change them.</p>
+            <p class="muted" style="margin:4px 0 0">
+              Check your answers.
+              Once submitted, you cannot change them.
+            </p>
           </div>
+
           <div style="text-align:center">
             <div class="muted">TIME LEFT</div>
             <div id="timer2" class="timer" style="font-size:28px"></div>
           </div>
         </div>
+
         <div class="grid">
-          <div class="card" style="text-align:center"><div class="muted">ANSWERED</div><div id="c-answered" class="stat pass"></div></div>
-          <div class="card" style="text-align:center"><div class="muted">UNANSWERED</div><div id="c-unanswered" class="stat fail"></div></div>
-          <div class="card" style="text-align:center"><div class="muted">FLAGGED</div><div id="c-flagged" class="stat" style="color:var(--warn)"></div></div>
+          <div class="card" style="text-align:center">
+            <div class="muted">ANSWERED</div>
+            <div id="c-answered" class="stat pass"></div>
+          </div>
+
+          <div class="card" style="text-align:center">
+            <div class="muted">UNANSWERED</div>
+            <div id="c-unanswered" class="stat fail"></div>
+          </div>
+
+          <div class="card" style="text-align:center">
+            <div class="muted">FLAGGED</div>
+            <div id="c-flagged" class="stat"
+              style="color:var(--warn)"></div>
+          </div>
         </div>
-        <div id="c-notice" class="notice hidden"></div> <!-- warning text, e.g. "2 unanswered" -->
+
+        <div id="c-notice" class="notice hidden"></div>
       </div>
 
       <div class="card">
         <h3 style="margin-top:0">Your Answers</h3>
-        <div id="c-list"></div> <!-- one row per question, with a Review button -->
+        <div id="c-list"></div>
       </div>
 
       <div class="card stack">
         <label class="agree">
-          <input type="checkbox" id="agree" onchange="$('submit-final').disabled = !this.checked">
-          I understand that submitting is final and I cannot return to the exam.
+          <input type="checkbox" id="agree"
+            onchange="$('submit-final').disabled = !this.checked">
+          I understand that submitting is final and I cannot
+          return to the exam.
         </label>
+
         <div class="row">
-          <button class="btn ghost" onclick="go(i)">&larr; Back to Exam</button>
-          <button id="submit-final" class="btn ok" disabled onclick="submit(false)">Submit Final Answers</button>
+          <button class="btn ghost" onclick="go(i)">
+            &larr; Back to Exam
+          </button>
+
+          <button id="submit-final" class="btn ok" disabled
+            onclick="submit(false)">
+            Submit Final Answers
+          </button>
         </div>
       </div>
     </section>
 
-    <!-- SCREEN 3: RESULT — shown right after submitting -->
-    <section id="result" class="hidden narrow card stack" style="text-align:center">
+    <!-- RESULT -->
+    <section id="result"
+      class="hidden narrow card stack"
+      style="text-align:center">
+
       <h1>Assessment Completed</h1>
       <p id="rsub" class="muted"></p>
+
       <div class="grid">
-        <div><div class="muted">FINAL SCORE</div><div id="rscore" class="stat"></div></div>
-        <div><div class="muted">PERCENTAGE</div><div id="rpct" class="stat"></div></div>
-        <div><div class="muted">STATUS</div><div id="rstatus" class="stat"></div></div>
+        <div>
+          <div class="muted">FINAL SCORE</div>
+          <div id="rscore" class="stat"></div>
+        </div>
+
+        <div>
+          <div class="muted">PERCENTAGE</div>
+          <div id="rpct" class="stat"></div>
+        </div>
+
+        <div>
+          <div class="muted">STATUS</div>
+          <div id="rstatus" class="stat"></div>
+        </div>
       </div>
+
       <div class="actions" style="justify-content:center">
-        <a id="r-review" class="btn ghost hidden">Review My Answers</a> <!-- only shown if review is allowed -->
-        <a class="btn" href="student.html">Return to Dashboard</a>
+        <a id="r-review" class="btn ghost hidden">
+          Review My Answers
+        </a>
+
+        <a class="btn" href="student.html">
+          Return to Dashboard
+        </a>
       </div>
     </section>
-
   </div>
 
   <script src="data.js"></script>
+
   <script>
     const user = requireRole('student');
     const db = DB.load();
-    document.head.insertAdjacentHTML('beforeend', '<link rel="icon" href="Logo.png">');
 
-    /* ---------- Step 1: load the exam, and stop early if the student shouldn't be here ---------- */
-    const found = db.exams.find(e => e.id == new URLSearchParams(location.search).get('id'));
-    if (!found) { location.href = 'student.html'; throw new Error('exam not found'); }
-    const subject = db.subjects.find(s => s.id === found.subjectId);
+    document.head.insertAdjacentHTML(
+      'beforeend',
+      '<link rel="icon" href="Logo.png">'
+    );
 
-    // "run" = a saved-in-progress attempt for this exam, if one exists (see Run in data.js)
+    /* ---------- Load the exam ---------- */
+
+    const found = db.exams.find(exam =>
+      exam.id == new URLSearchParams(location.search).get('id')
+    );
+
+    if (!found) {
+      location.href = 'student.html';
+      throw new Error('exam not found');
+    }
+
+    const subject = db.subjects.find(item =>
+      item.id === found.subjectId
+    );
+
     let run = Run.get(user.id, found.id);
+
     if (!run && Attempts.left(db, user.id, found) < 1) {
-      alert('You have no attempts left for this exam. Ask your instructor for a retake.');
+      alert(
+        'You have no attempts left for this exam. ' +
+        'Ask your instructor for a retake.'
+      );
+
       location.href = 'student.html';
       throw new Error('no attempts left');
     }
 
-    // Page-wide state while the exam is being taken
-    let exam, i = 0, answers = {}, flags = new Set(), picked = null, timer, submitted = false;
-    const cur = () => exam.questions[i]; // the question currently on screen
+    let exam;
+    let i = 0;
+    let answers = {};
+    let flags = new Set();
+    let picked = null;
+    let timer;
+    let submitted = false;
 
-    // Turns a drag-and-drop pair id into a small consistent number, just so the
-    // "answer bank" below each question shows items in a fixed shuffled order
-    // instead of re-shuffling every time the page redraws.
-    const hash = s => [...s].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
+    const cur = () => exam.questions[i];
 
-    /* ---------- Switching between the 4 screens (gate / live / confirm / result) ---------- */
+    const hash = value =>
+      [...value].reduce(
+        (result, character) =>
+          (result * 31 + character.charCodeAt(0)) >>> 0,
+        7
+      );
+
+    /* ---------- Screen switching ---------- */
+
     function show(name) {
-      ['gate', 'live', 'confirm', 'result'].forEach(s => $(s).classList.toggle('hidden', s !== name));
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      ['gate', 'live', 'confirm', 'result'].forEach(id => {
+        $(id).classList.toggle('hidden', id !== name);
+      });
+
+      window.scrollTo({
+        top: 0,
+        behavior: 'smooth'
+      });
     }
 
-    /* ---------- Step 2: access code screen (only if the exam has a password) ---------- */
+    /* ---------- Access code ---------- */
+
     function checkCode() {
-      if ($('g-code').value.trim() === found.password.trim()) return begin();
+      if (
+        $('g-code').value.trim() === found.password.trim()
+      ) {
+        return begin();
+      }
+
       $('g-err').textContent = 'Incorrect access code.';
       $('g-err').classList.remove('hidden');
     }
 
-    /* ---------- Step 3: starting a brand new attempt ---------- */
+    /* ---------- Start a new attempt ---------- */
+
     function begin() {
-      // Decide the question order now, once, and save it — so shuffle stays the
-      // same even if the student refreshes the page partway through.
-      const ids = found.questions.map(q => q.id);
-      if (found.shuffle) {
-        for (let k = ids.length - 1; k > 0; k--) {
-          const j = Math.floor(Math.random() * (k + 1));
-          [ids[k], ids[j]] = [ids[j], ids[k]];
-        }
+      if (run || submitted) return;
+
+      let questions;
+
+      try {
+        questions = ExamQuestions.select(found);
+      } catch (error) {
+        alert(error.message);
+        return;
       }
-      run = { endAt: Date.now() + found.duration * 60000, order: ids, answers: {}, flags: [], index: 0 };
+
+      // Save the selected questions themselves, not only their IDs.
+      // Refreshing will restore the same questions and order.
+      run = {
+        endAt: Date.now() + found.duration * 60000,
+        order: questions.map(question => question.id),
+        questions,
+        answers: {},
+        flags: [],
+        index: 0
+      };
+
       Run.set(user.id, found.id, run);
       launch();
     }
 
-    /* ---------- Step 4: showing the exam (used for both a new start and a resumed one) ---------- */
+    /* ---------- Start or resume the selected questions ---------- */
+
     function launch() {
-      // Work on a COPY of the exam so shuffling the order never changes the real saved exam
       exam = structuredClone(found);
 
-      // Put the questions in the order saved in "run"
-      const byId = Object.fromEntries(exam.questions.map(q => [q.id, q]));
-      const ordered = run.order.map(id => byId[id]).filter(Boolean);
-      exam.questions.forEach(q => { if (!ordered.includes(q)) ordered.push(q); }); // just in case a question was added after the student started
-      exam.questions = ordered;
+      // Compatibility with attempts started before this update.
+      if (!Array.isArray(run.questions)) {
+        const byId = new Map(
+          found.questions.map(question => [
+            question.id,
+            question
+          ])
+        );
 
-      // Restore exactly where the student left off
+        run.questions = (
+          run.order || found.questions.map(question => question.id)
+        )
+          .map(id => byId.get(id))
+          .filter(Boolean)
+          .map(question => structuredClone(question));
+
+        Run.set(user.id, found.id, run);
+      }
+
+      // Only restore the saved selection.
+      // Never append the remaining question-bank items.
+      exam.questions = structuredClone(run.questions);
+
+      if (!exam.questions.length) {
+        alert(
+          'This attempt has no available questions. ' +
+          'Contact your instructor.'
+        );
+
+        location.href = 'student.html';
+        throw new Error('No questions in attempt');
+      }
+
       answers = run.answers || {};
       flags = new Set(run.flags || []);
-      i = Math.min(run.index || 0, exam.questions.length - 1);
+
+      i = Math.max(
+        0,
+        Math.min(run.index || 0, exam.questions.length - 1)
+      );
 
       $('title').textContent = exam.title;
-      $('subject').textContent = `${subject.code} - ${subject.name}`;
+      $('subject').textContent =
+        `${subject.code} - ${subject.name}`;
+
       show('live');
       draw();
+
+      clearInterval(timer);
       tick();
-      timer = setInterval(tick, 1000);
+
+      if (!submitted) {
+        timer = setInterval(tick, 1000);
+      }
     }
 
-    // Saves the student's current progress. Called after every answer, flag, or
-    // page move, so a refresh never loses anything.
+    /* ---------- Save progress ---------- */
+
     function save() {
       run.answers = answers;
       run.flags = [...flags];
       run.index = i;
+
       Run.set(user.id, found.id, run);
     }
 
     /* ---------- Timer ---------- */
-    // Counts down based on the saved end time (run.endAt), not a simple in-memory
-    // countdown — that's what makes the timer survive a refresh.
+
     function tick() {
-      const left = Math.max(0, Math.ceil((run.endAt - Date.now()) / 1000));
-      const t = String(Math.floor(left / 60)).padStart(2, '0') + ':' + String(left % 60).padStart(2, '0');
+      if (submitted) return;
+
+      const left = Math.max(
+        0,
+        Math.ceil((run.endAt - Date.now()) / 1000)
+      );
+
+      const minutes = String(Math.floor(left / 60))
+        .padStart(2, '0');
+
+      const seconds = String(left % 60)
+        .padStart(2, '0');
+
+      const text = minutes + ':' + seconds;
+
       ['timer', 'timer2'].forEach(id => {
-        $(id).textContent = t;
+        $(id).textContent = text;
         $(id).classList.toggle('low', left < 60);
       });
-      if (left <= 0) submit(true); // time's up: auto-submit
+
+      if (left <= 0) {
+        submit(true);
+      }
     }
 
-    /* ---------- Drawing the current question + the question grid ---------- */
-    function draw() { drawQuestion(); drawGrid(); }
+    /* ---------- Draw question and navigation ---------- */
+
+    function draw() {
+      drawQuestion();
+      drawGrid();
+    }
 
     function drawQuestion() {
-      const q = cur(), total = exam.questions.length;
-      $('badge').textContent = `QUESTION ${i + 1} OF ${total} · ${Q.types[q.type].toUpperCase()}`;
-      $('qtext').textContent = q.text;
-      $('options').innerHTML = body(q); // the answer area — different per question type, see body() below
+      const question = cur();
+      const total = exam.questions.length;
 
-      const on = flags.has(q.id);
-      $('flagbtn').classList.toggle('on', on);
-      $('flagbtn').textContent = on ? '⚑ Flagged' : '⚑ Flag for review';
+      $('badge').textContent =
+        `QUESTION ${i + 1} OF ${total} · ` +
+        Q.types[question.type].toUpperCase();
+
+      $('qtext').textContent = question.text;
+      $('options').innerHTML = body(question);
+
+      const flagged = flags.has(question.id);
+
+      $('flagbtn').classList.toggle('on', flagged);
+      $('flagbtn').textContent = flagged
+        ? '⚑ Flagged'
+        : '⚑ Flag for review';
 
       $('prev').disabled = i === 0;
-      $('next').textContent = i === total - 1 ? 'Review & Finish' : 'Next →';
+      $('next').textContent = i === total - 1
+        ? 'Review & Finish'
+        : 'Next →';
     }
 
     function drawGrid() {
       const total = exam.questions.length;
       let done = 0;
-      $('grid').innerHTML = exam.questions.map((q, n) => {
-        const ok = Q.answered(q, answers[q.id]);
-        if (ok) done++;
-        const cls = n === i ? 'cur' : flags.has(q.id) ? 'flag' : ok ? 'done' : '';
-        return `<button class="${cls}" onclick="go(${n})">${n + 1}${flags.has(q.id) ? '<sup>⚑</sup>' : ''}</button>`;
-      }).join('');
-      $('count').textContent = `${done}/${total} Answered · ${flags.size} Flagged`;
+
+      $('grid').innerHTML = exam.questions
+        .map((question, index) => {
+          const answered = Q.answered(
+            question,
+            answers[question.id]
+          );
+
+          if (answered) done++;
+
+          const className = index === i
+            ? 'cur'
+            : flags.has(question.id)
+              ? 'flag'
+              : answered
+                ? 'done'
+                : '';
+
+          return `
+            <button class="${className}" onclick="go(${index})">
+              ${index + 1}
+              ${flags.has(question.id) ? '<sup>⚑</sup>' : ''}
+            </button>
+          `;
+        }).join('');
+
+      $('count').textContent =
+        `${done}/${total} Answered · ${flags.size} Flagged`;
     }
 
-    // Builds the HTML for the answer area, based on the question's type
-    function body(q) {
-      const a = answers[q.id];
+    /* ---------- Answer area ---------- */
 
-      if (q.type === 'identification') {
-        return `<input id="ident" placeholder="Type your answer here" autocomplete="off" value="${esc(a || '')}" oninput="setText(this.value)">`;
+    function body(question) {
+      const answer = answers[question.id];
+
+      if (question.type === 'identification') {
+        return `
+          <input
+            id="ident"
+            placeholder="Type your answer here"
+            autocomplete="off"
+            value="${esc(answer || '')}"
+            oninput="setText(this.value)"
+          >
+        `;
       }
-      if (q.type === 'dragdrop') return dragBody(q, a || {});
 
-      // mcq and checkbox share the same look; checkbox just allows more than one selected
-      const multi = q.type === 'checkbox';
-      return (multi ? '<p class="muted">Select all that apply.</p>' : '') + q.options.map((o, n) => {
-        const on = multi ? (a || []).includes(o.id) : a === o.id;
-        return `<div class="opt ${on ? 'sel' : ''}" onclick="pick('${o.id}')">
-          <span class="badge">${on && multi ? '✓' : 'ABCDEFGH'[n]}</span>${esc(o.text)}</div>`;
+      if (question.type === 'dragdrop') {
+        return dragBody(question, answer || {});
+      }
+
+      const multi = question.type === 'checkbox';
+
+      return (
+        multi
+          ? '<p class="muted">Select all that apply.</p>'
+          : ''
+      ) + question.options.map((option, index) => {
+        const selected = multi
+          ? (answer || []).includes(option.id)
+          : answer === option.id;
+
+        return `
+          <div
+            class="opt ${selected ? 'sel' : ''}"
+            onclick="pick('${option.id}')"
+          >
+            <span class="badge">
+              ${selected && multi ? '✓' : 'ABCDEFGH'[index]}
+            </span>
+            ${esc(option.text)}
+          </div>
+        `;
       }).join('');
     }
 
-    // Builds the drag-and-drop matching UI: one slot per "left" item, plus a bank
-    // of draggable answer tiles for the "right" side.
-    function dragBody(q, a) {
-      const placed = new Set(Object.values(a)); // tiles already placed into a slot
-      const bank = q.pairs
-        .filter(p => !placed.has(p.id))
-        .sort((x, y) => hash(x.id + q.id) - hash(y.id + q.id)); // fixed shuffled order
+    function dragBody(question, answer) {
+      const placed = new Set(Object.values(answer));
+
+      const bank = question.pairs
+        .filter(pair => !placed.has(pair.id))
+        .sort((a, b) =>
+          hash(a.id + question.id) -
+          hash(b.id + question.id)
+        );
 
       return `
-        <p class="muted">Drag each answer onto its match, or tap an answer and then tap a slot. Tap a filled slot to remove it.</p>
-        ${q.pairs.map(p => {
-          const item = q.pairs.find(x => x.id === a[p.id]); // what's currently placed in this slot, if anything
-          return `<div class="match">
-            <div><b>${esc(p.left)}</b></div>
-            <div class="slot ${item ? 'filled' : ''}" ondragover="allowDrop(event)" ondragleave="leaveSlot(event)" ondrop="dropOn(event,'${p.id}')" onclick="tapSlot('${p.id}')">
-              ${item ? esc(item.right) : 'Drop answer here'}
+        <p class="muted">
+          Drag each answer onto its match, or tap an answer
+          and then tap a slot. Tap a filled slot to remove it.
+        </p>
+
+        ${question.pairs.map(pair => {
+          const item = question.pairs.find(candidate =>
+            candidate.id === answer[pair.id]
+          );
+
+          return `
+            <div class="match">
+              <div><b>${esc(pair.left)}</b></div>
+
+              <div
+                class="slot ${item ? 'filled' : ''}"
+                ondragover="allowDrop(event)"
+                ondragleave="leaveSlot(event)"
+                ondrop="dropOn(event,'${pair.id}')"
+                onclick="tapSlot('${pair.id}')"
+              >
+                ${item ? esc(item.right) : 'Drop answer here'}
+              </div>
             </div>
-          </div>`;
+          `;
         }).join('')}
+
         <div class="bank">
-          ${bank.map(p => `<div class="tile ${picked === p.id ? 'picked' : ''}" draggable="true" ondragstart="dragStart(event,'${p.id}')" onclick="tapTile('${p.id}')">${esc(p.right)}</div>`).join('') || '<span class="muted">All answers placed.</span>'}
-        </div>`;
+          ${bank.map(pair => `
+            <div
+              class="tile ${picked === pair.id ? 'picked' : ''}"
+              draggable="true"
+              ondragstart="dragStart(event,'${pair.id}')"
+              onclick="tapTile('${pair.id}')"
+            >
+              ${esc(pair.right)}
+            </div>
+          `).join('') ||
+          '<span class="muted">All answers placed.</span>'}
+        </div>
+      `;
     }
 
-    /* ---------- Answering: mcq / checkbox / identification ---------- */
+    /* ---------- Multiple choice and identification ---------- */
+
     function pick(id) {
-      const q = cur();
-      if (q.type === 'checkbox') {
-        // toggle this option on/off within a Set, then store it back as an array
-        const set = new Set(answers[q.id] || []);
-        set.has(id) ? set.delete(id) : set.add(id);
-        if (set.size) answers[q.id] = [...set]; else delete answers[q.id];
+      const question = cur();
+
+      if (question.type === 'checkbox') {
+        const selected = new Set(
+          answers[question.id] || []
+        );
+
+        if (selected.has(id)) {
+          selected.delete(id);
+        } else {
+          selected.add(id);
+        }
+
+        if (selected.size) {
+          answers[question.id] = [...selected];
+        } else {
+          delete answers[question.id];
+        }
       } else {
-        answers[q.id] = id; // mcq: only one answer possible, so just overwrite it
+        answers[question.id] = id;
       }
+
       save();
       draw();
     }
 
-    function setText(v) {
-      const q = cur();
-      if (v.trim()) answers[q.id] = v; else delete answers[q.id]; // empty text = treated as unanswered
+    function setText(value) {
+      const question = cur();
+
+      if (value.trim()) {
+        answers[question.id] = value;
+      } else {
+        delete answers[question.id];
+      }
+
       save();
-      drawGrid(); // no need to redraw the question itself, just the "answered" count
+      drawGrid();
     }
 
-    /* ---------- Answering: drag and drop ----------
-       Two ways to answer: actual mouse dragging (dragStart/allowDrop/dropOn), or
-       tap-to-place for touch screens (tapTile then tapSlot). Both end up calling
-       place(), which does the actual assigning. */
-    function dragStart(e, id) { e.dataTransfer.setData('text/plain', id); }
-    function allowDrop(e) { e.preventDefault(); e.currentTarget.classList.add('over'); }
-    function leaveSlot(e) { e.currentTarget.classList.remove('over'); }
-    function dropOn(e, slotId) { e.preventDefault(); place(slotId, e.dataTransfer.getData('text/plain')); }
+    /* ---------- Drag and drop ---------- */
 
-    function tapTile(id) { picked = picked === id ? null : id; drawQuestion(); } // select/deselect a tile to place next
+    function dragStart(event, id) {
+      event.dataTransfer.setData('text/plain', id);
+    }
+
+    function allowDrop(event) {
+      event.preventDefault();
+      event.currentTarget.classList.add('over');
+    }
+
+    function leaveSlot(event) {
+      event.currentTarget.classList.remove('over');
+    }
+
+    function dropOn(event, slotId) {
+      event.preventDefault();
+
+      place(
+        slotId,
+        event.dataTransfer.getData('text/plain')
+      );
+    }
+
+    function tapTile(id) {
+      picked = picked === id ? null : id;
+      drawQuestion();
+    }
 
     function tapSlot(slotId) {
-      const q = cur();
-      if (picked) return place(slotId, picked); // a tile is selected: place it here
+      const question = cur();
 
-      // No tile selected: tapping a filled slot removes whatever's in it
-      const a = { ...(answers[q.id] || {}) };
-      if (!a[slotId]) return;
-      delete a[slotId];
-      commitMatch(q, a);
+      if (picked) {
+        return place(slotId, picked);
+      }
+
+      const answer = {
+        ...(answers[question.id] || {})
+      };
+
+      if (!answer[slotId]) return;
+
+      delete answer[slotId];
+      commitMatch(question, answer);
     }
 
     function place(slotId, itemId) {
-      const q = cur();
-      const a = { ...(answers[q.id] || {}) };
-      Object.keys(a).forEach(k => { if (a[k] === itemId) delete a[k]; }); // an item can only be placed once
-      a[slotId] = itemId;
+      const question = cur();
+
+      const answer = {
+        ...(answers[question.id] || {})
+      };
+
+      Object.keys(answer).forEach(key => {
+        if (answer[key] === itemId) {
+          delete answer[key];
+        }
+      });
+
+      answer[slotId] = itemId;
       picked = null;
-      commitMatch(q, a);
+
+      commitMatch(question, answer);
     }
 
-    function commitMatch(q, a) {
-      if (Object.keys(a).length) answers[q.id] = a; else delete answers[q.id];
+    function commitMatch(question, answer) {
+      if (Object.keys(answer).length) {
+        answers[question.id] = answer;
+      } else {
+        delete answers[question.id];
+      }
+
       save();
       draw();
     }
 
-    /* ---------- Flags & moving between questions ---------- */
+    /* ---------- Flags and navigation ---------- */
+
     function toggleFlag() {
       const id = cur().id;
-      flags.has(id) ? flags.delete(id) : flags.add(id);
+
+      if (flags.has(id)) {
+        flags.delete(id);
+      } else {
+        flags.add(id);
+      }
+
       save();
       draw();
     }
 
-    function go(n) {
-      i = n;
-      picked = null; // clear any selected drag-and-drop tile when leaving a question
+    function go(index) {
+      i = index;
+      picked = null;
+
       save();
       show('live');
       draw();
     }
 
-    function move(d) {
-      if (d > 0 && i === exam.questions.length - 1) return openConfirm(); // "Next" on the last question opens confirmation instead
-      go(Math.max(0, i + d));
+    function move(direction) {
+      if (
+        direction > 0 &&
+        i === exam.questions.length - 1
+      ) {
+        return openConfirm();
+      }
+
+      go(Math.max(0, i + direction));
     }
 
-    /* ---------- Step 5: confirmation screen before final submit ---------- */
+    /* ---------- Review before submission ---------- */
+
     function openConfirm() {
       const total = exam.questions.length;
-      const answered = exam.questions.filter(q => Q.answered(q, answers[q.id])).length;
+
+      const answered = exam.questions.filter(question =>
+        Q.answered(question, answers[question.id])
+      ).length;
+
       const unanswered = total - answered;
 
       $('c-answered').textContent = answered;
       $('c-unanswered').textContent = unanswered;
       $('c-flagged').textContent = flags.size;
 
-      const msgs = [];
-      if (unanswered) msgs.push(`${unanswered} unanswered question${unanswered > 1 ? 's' : ''}`);
-      if (flags.size) msgs.push(`${flags.size} flagged for review`);
-      $('c-notice').textContent = msgs.length ? `Heads up: you still have ${msgs.join(' and ')}.` : '';
-      $('c-notice').classList.toggle('hidden', !msgs.length);
+      const messages = [];
 
-      // One row per question, each with a Review button that jumps back to it
-      $('c-list').innerHTML = exam.questions.map((q, n) => `
-        <div class="qitem">
-          <div class="qmain">
-            <b>Q${n + 1}</b>
-            <span class="muted">${esc(q.text.length > 50 ? q.text.slice(0, 50) + '…' : q.text)}</span>
+      if (unanswered) {
+        messages.push(
+          `${unanswered} unanswered question` +
+          (unanswered > 1 ? 's' : '')
+        );
+      }
+
+      if (flags.size) {
+        messages.push(`${flags.size} flagged for review`);
+      }
+
+      $('c-notice').textContent = messages.length
+        ? `Heads up: you still have ${messages.join(' and ')}.`
+        : '';
+
+      $('c-notice').classList.toggle(
+        'hidden',
+        !messages.length
+      );
+
+      $('c-list').innerHTML = exam.questions
+        .map((question, index) => `
+          <div class="qitem">
+            <div class="qmain">
+              <b>Q${index + 1}</b>
+
+              <span class="muted">
+                ${esc(
+                  question.text.length > 50
+                    ? question.text.slice(0, 50) + '…'
+                    : question.text
+                )}
+              </span>
+            </div>
+
+            <div class="qmeta">
+              ${flags.has(question.id)
+                ? '<span class="chip warn">⚑ Flagged</span>'
+                : ''}
+
+              ${Q.answered(question, answers[question.id])
+                ? '<span class="chip ok">Answered</span>'
+                : '<span class="chip none">Unanswered</span>'}
+
+              <button class="btn ghost sm"
+                onclick="go(${index})">
+                Review
+              </button>
+            </div>
           </div>
-          <div class="qmeta">
-            ${flags.has(q.id) ? '<span class="chip warn">⚑ Flagged</span>' : ''}
-            ${Q.answered(q, answers[q.id]) ? '<span class="chip ok">Answered</span>' : '<span class="chip none">Unanswered</span>'}
-            <button class="btn ghost sm" onclick="go(${n})">Review</button>
-          </div>
-        </div>`).join('');
+        `).join('');
 
       $('agree').checked = false;
-      $('submit-final').disabled = true; // re-enabled only once the checkbox is ticked
+      $('submit-final').disabled = true;
+
       show('confirm');
     }
 
-    /* ---------- Step 6: final submit & grading ---------- */
+    /* ---------- Submit and grade selected questions ---------- */
+
     function submit(timeout) {
-      if (submitted) return; // guards against double-submitting (e.g. timeout firing twice)
+      if (submitted) return;
+
       submitted = true;
       clearInterval(timer);
 
-      // Grade every question and keep the full detail, so the review page can show it later
-      const detail = exam.questions.map(q => ({ q, answer: answers[q.id] ?? null, correct: Q.isCorrect(q, answers[q.id]) }));
+      // exam.questions contains only this attempt's selection.
+      const detail = exam.questions.map(question => ({
+        q: question,
+        answer: answers[question.id] ?? null,
+        correct: Q.isCorrect(
+          question,
+          answers[question.id]
+        )
+      }));
+
       const total = detail.length;
-      const score = detail.filter(d => d.correct).length;
-      const pct = Math.round(score / total * 100);
-      const status = pct >= (exam.passingGrade || 60) ? 'Passed' : 'Failed';
+      const score = detail.filter(item => item.correct).length;
+      const percentage = Math.round(score / total * 100);
+
+      const status = percentage >= (exam.passingGrade || 60)
+        ? 'Passed'
+        : 'Failed';
 
       const attempt = {
-        id: Date.now(), studentId: user.id, examId: exam.id,
-        score, total, percentage: pct, status,
+        id: Date.now(),
+        studentId: user.id,
+        examId: exam.id,
+        score,
+        total,
+        percentage,
+        status,
         flagged: flags.size,
-        date: new Date().toISOString().replace('T', ' ').substring(0, 16),
+        date: new Date()
+          .toISOString()
+          .replace('T', ' ')
+          .substring(0, 16),
         detail
       };
 
-      // Reload the data fresh right before saving, in case something else changed
-      // it while the exam was open, then add this attempt and save.
       const fresh = DB.load();
       fresh.attempts.push(attempt);
       DB.save(fresh);
-      Run.clear(user.id, exam.id); // the attempt is done, so there's nothing left to resume
-      try { history.replaceState(null, '', 'student.html'); } catch (e) {} // tidy up the address bar
 
-      $('rsub').textContent = timeout ? 'Time expired! Exam submitted automatically.' : 'Your response has been recorded.';
+      Run.clear(user.id, exam.id);
+
+      try {
+        history.replaceState(null, '', 'student.html');
+      } catch (error) {
+        // The result can still be shown if the URL cannot be changed.
+      }
+
+      $('rsub').textContent = timeout
+        ? 'Time expired! Exam submitted automatically.'
+        : 'Your response has been recorded.';
+
       $('rscore').textContent = `${score}/${total}`;
-      $('rpct').textContent = pct + '%';
+      $('rpct').textContent = percentage + '%';
       $('rstatus').textContent = status;
-      $('rstatus').className = 'stat ' + (status === 'Passed' ? 'pass' : 'fail');
 
-      // Only offer a review link if the exam (as it stands right now) still allows it
-      const live = fresh.exams.find(e => e.id === exam.id);
-      if (live && live.allowReview) {
-        $('r-review').href = `review.html?attempt=${attempt.id}`;
+      $('rstatus').className =
+        'stat ' + (status === 'Passed' ? 'pass' : 'fail');
+
+      const liveExam = fresh.exams.find(item =>
+        item.id === exam.id
+      );
+
+      if (liveExam && liveExam.allowReview) {
+        $('r-review').href =
+          `review.html?attempt=${attempt.id}`;
+
         $('r-review').classList.remove('hidden');
       }
+
       show('result');
     }
 
-    /* ---------- Entry point: decide which screen to start on ---------- */
+    /* ---------- Entry point ---------- */
+
     if (run) {
-      launch();                 // resuming: skip straight back in, timer continues from its saved end time
+      // Resume the same questions, answers, and timer.
+      launch();
     } else if (found.password) {
       $('g-title').textContent = found.title;
-      show('gate');             // needs an access code first
+      show('gate');
     } else {
-      begin();                  // no code needed: start immediately
+      begin();
     }
   </script>
 </body>

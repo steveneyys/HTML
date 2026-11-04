@@ -1,104 +1,365 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Student Dashboard | ExamPortal</title>
   <link rel="stylesheet" href="./css/style.css">
 </head>
+
 <body>
   <div class="wrap">
     <h1>Student Dashboard</h1>
-    <p class="muted">Select a subject to view assigned assessments.</p>
 
-    <!-- Tab buttons; tab(name) in data.js shows/hides the matching <section> below -->
+    <p class="muted">
+      Select a subject to view assigned assessments.
+    </p>
+
     <div class="tabs">
-      <button data-tab="subjects" class="active" onclick="tab('subjects')">My Subjects</button>
-      <button data-tab="history" onclick="tab('history')">Performance</button>
-      <button data-tab="guide" onclick="tab('guide')">Guidelines & FAQ</button>
+      <button data-tab="subjects" class="active"
+        onclick="tab('subjects')">
+        My Subjects
+      </button>
+
+      <button data-tab="history" onclick="tab('history')">
+        Performance
+      </button>
+
+      <button data-tab="guide" onclick="tab('guide')">
+        Guidelines & FAQ
+      </button>
     </div>
 
-    <section id="subjects" class="pane grid active"></section> <!-- filled in by JS below -->
-    <section id="history" class="pane stack"></section>        <!-- filled in by JS below -->
+    <section id="subjects" class="pane grid active"></section>
+    <section id="history" class="pane stack"></section>
 
     <section id="guide" class="pane card stack">
       <h2>Examination Guidelines & FAQ</h2>
+
       <ul>
         <li>Do not switch tabs or minimize the browser during an exam.</li>
-        <li>The timer keeps running even if you refresh or close the page. Reopen the exam from your dashboard to resume.</li>
+        <li>
+          You will be asked to confirm before starting.
+          If an access code is required, the timer starts
+          after the correct code is entered.
+        </li>
+        <li>
+          The timer keeps running even if you refresh or close
+          the page. Reopen the exam from your dashboard to resume.
+        </li>
         <li>Answers are saved as you go.</li>
+        <li>
+          Some exams randomly select questions from a larger
+          question bank. Students may receive different sets.
+        </li>
+        <li>
+          Your selected questions and their order stay the same
+          when you refresh or resume an ongoing attempt.
+        </li>
         <li>Some exams need an access code from your instructor.</li>
-        <li>Each exam has a limited number of attempts. Ask your instructor if you need a retake.</li>
-        <li>Where your instructor allows it, you can review your answers after submitting.</li>
+        <li>
+          Each exam has a limited number of attempts.
+          Ask your instructor if you need a retake.
+        </li>
+        <li>
+          Where your instructor allows it, you can review
+          your answers after submitting.
+        </li>
       </ul>
     </section>
   </div>
 
+  <!-- START CONFIRMATION -->
+  <div id="modal" class="modal"
+    onclick="if (event.target === this) closeModal()">
+
+    <div class="modal-box">
+      <h2 style="margin:0">Start this exam?</h2>
+      <p id="m-title" class="muted" style="margin:4px 0 0"></p>
+
+      <div id="m-facts" class="facts"></div>
+
+      <div class="notice">
+        The timer starts when the exam begins and cannot be paused.
+        If an access code is required, enter it first.
+        This uses one attempt once you submit.
+      </div>
+
+      <div class="row" style="margin-top:20px">
+        <button class="btn ghost" onclick="closeModal()">
+          Cancel
+        </button>
+
+        <button id="m-go" class="btn ok">
+          Begin Exam
+        </button>
+      </div>
+    </div>
+  </div>
+
   <script src="data.js"></script>
+
   <script>
-    const user = requireRole('student'); // kicks non-students back to the login page
+    const user = requireRole('student');
     const db = DB.load();
+
     renderNav(user);
 
-    /* ---------- "My Subjects" tab ---------- */
-    // One card per subject the student is enrolled in, listing that subject's exams
-    $('subjects').innerHTML = db.subjects
-      .filter(s => s.studentIds.includes(user.id))
-      .map(s => `
-        <div class="card stack">
-          <span class="badge">${s.code}</span>
-          <h3>${esc(s.name)}</h3>
-          <p class="muted">${esc(s.description)}</p>
-          ${db.exams.filter(e => e.subjectId === s.id).map(e => {
-            const used = Attempts.used(db, user.id, e.id);
-            const allowed = Attempts.allowed(db, user.id, e);
-            const left = Attempts.left(db, user.id, e);
-            const running = Run.get(user.id, e.id); // is there an exam saved mid-progress?
+    /* ---------- Question count ---------- */
 
-            // Decide which button to show: Resume > Start/Start Again > No attempts left
-            let action = `<button class="btn" disabled>No attempts left</button>`;
-            if (running) action = `<a class="btn ok" href="exam.html?id=${e.id}">Resume</a>`;
-            else if (left > 0) action = `<a class="btn" href="exam.html?id=${e.id}">Start${used ? ' Again' : ''}</a>`;
+    function studentQuestionCount(exam) {
+      const saved = Run.get(user.id, exam.id);
 
-            return `
-              <div class="row">
-                <div>
-                  <b>${esc(e.title)}</b>
-                  <div class="muted">${e.duration} min · ${e.questions.length} questions · Attempts ${used}/${allowed}${e.password ? ' · 🔒 Access code' : ''}</div>
-                  ${running ? '<div class="chip warn" style="display:inline-block;margin-top:4px">In progress</div>' : ''}
-                </div>
-                ${action}
-              </div>`;
-          }).join('') || '<p class="muted">No assessments yet.</p>'}
-        </div>`)
-      .join('') || '<p class="muted">You are not enrolled in any subjects yet.</p>';
-
-    /* ---------- "Performance" tab ---------- */
-    // Every past attempt by this student, most recent first
-    const mine = db.attempts
-      .filter(a => a.studentId === user.id)
-      .sort((a, b) => b.date.localeCompare(a.date));
-
-    $('history').innerHTML = mine.map(a => {
-      const ex = db.exams.find(e => e.id === a.examId);
-
-      // Only show a review link if: the exam still exists, this attempt saved its
-      // answers (older attempts might not have), and review is currently allowed.
-      let review = '';
-      if (ex && a.detail) {
-        review = ex.allowReview
-          ? `<a class="btn sm" href="review.html?attempt=${a.id}">Review Answers</a>`
-          : '<span class="chip">Review off</span>';
+      if (Array.isArray(saved?.questions)) {
+        return saved.questions.length;
       }
 
-      return `<div class="card row">
-        <div><b>${esc(ex ? ex.title : 'Assessment')}</b><div class="muted">Completed: ${a.date}</div></div>
-        <div class="actions">
-          <div style="text-align:right"><b>${a.score}/${a.total} (${a.percentage}%)</b>
-            <div class="${a.status === 'Passed' ? 'pass' : 'fail'}">${a.status}</div></div>
-          ${review}
+      if (Array.isArray(saved?.order)) {
+        return saved.order.length;
+      }
+
+      return ExamQuestions.count(exam);
+    }
+
+    /* ---------- My Subjects ---------- */
+
+    function drawSubjects() {
+      $('subjects').innerHTML = db.subjects
+        .filter(subject => subject.studentIds.includes(user.id))
+        .map(subject => `
+          <div class="card stack">
+            <span class="badge">${esc(subject.code)}</span>
+            <h3>${esc(subject.name)}</h3>
+            <p class="muted">${esc(subject.description || '')}</p>
+
+            ${db.exams
+              .filter(exam => exam.subjectId === subject.id)
+              .map(exam => {
+                const used = Attempts.used(db, user.id, exam.id);
+                const allowed = Attempts.allowed(db, user.id, exam);
+                const left = Attempts.left(db, user.id, exam);
+                const running = Run.get(user.id, exam.id);
+                const count = studentQuestionCount(exam);
+                const valid = ExamQuestions.valid(exam) && count > 0;
+
+                let action = `
+                  <button class="btn" disabled>
+                    No attempts left
+                  </button>
+                `;
+
+                if (running) {
+                  action = `
+                    <a class="btn ok" href="exam.html?id=${exam.id}">
+                      Resume
+                    </a>
+                  `;
+                } else if (!valid) {
+                  action = `
+                    <span class="chip warn">
+                      Awaiting instructor update
+                    </span>
+                  `;
+                } else if (left > 0) {
+                  action = `
+                    <button class="btn"
+                      onclick="confirmStart(${exam.id})">
+                      Start${used ? ' Again' : ''}
+                    </button>
+                  `;
+                }
+
+                return `
+                  <div class="row">
+                    <div>
+                      <b>${esc(exam.title)}</b>
+
+                      <div class="muted">
+                        ${exam.duration} min ·
+                        ${count} question${count === 1 ? '' : 's'} ·
+                        Attempts ${used}/${allowed}
+                        ${exam.password ? ' · 🔒 Access code' : ''}
+                      </div>
+
+                      ${running ? `
+                        <div class="chip warn"
+                          style="display:inline-block;margin-top:4px">
+                          In progress
+                        </div>
+                      ` : ''}
+                    </div>
+
+                    ${action}
+                  </div>
+                `;
+              }).join('') ||
+              '<p class="muted">No assessments yet.</p>'}
+          </div>
+        `).join('') ||
+        '<p class="muted">You are not enrolled in any subjects yet.</p>';
+    }
+
+    /* ---------- Start confirmation ---------- */
+
+    function confirmStart(examId) {
+      // Use the latest saved settings before starting.
+      Object.assign(db, DB.load());
+
+      const exam = db.exams.find(item => item.id === examId);
+
+      const enrolled = exam && db.subjects.some(subject =>
+        subject.id === exam.subjectId &&
+        subject.studentIds.includes(user.id)
+      );
+
+      if (!enrolled) {
+        closeModal();
+        drawSubjects();
+        return;
+      }
+
+      const running = Run.get(user.id, exam.id);
+
+      if (running) {
+        location.href = `exam.html?id=${exam.id}`;
+        return;
+      }
+
+      if (Attempts.left(db, user.id, exam) < 1) {
+        closeModal();
+        drawSubjects();
+        return;
+      }
+
+      if (
+        !ExamQuestions.valid(exam) ||
+        exam.questions.length === 0
+      ) {
+        alert(
+          'This exam needs an instructor update before you can begin.'
+        );
+        closeModal();
+        drawSubjects();
+        return;
+      }
+
+      const left = Attempts.left(db, user.id, exam);
+      const allowed = Attempts.allowed(db, user.id, exam);
+      const count = studentQuestionCount(exam);
+      const random = Number(exam.questionCount ?? 0) > 0;
+
+      $('m-title').textContent = exam.title;
+
+      $('m-facts').innerHTML = `
+        <div class="fact">
+          <span>Time limit</span>
+          <b>${exam.duration} minutes</b>
         </div>
-      </div>`;
-    }).join('') || '<p class="muted">No past examination records found.</p>';
+
+        <div class="fact">
+          <span>Questions</span>
+          <b>${count}</b>
+        </div>
+
+        <div class="fact">
+          <span>Question selection</span>
+          <b>${random ? 'Random and shuffled' : 'All questions'}</b>
+        </div>
+
+        <div class="fact">
+          <span>Attempts remaining</span>
+          <b>${left} of ${allowed}</b>
+        </div>
+
+        <div class="fact">
+          <span>Passing grade</span>
+          <b>${exam.passingGrade || 60}%</b>
+        </div>
+
+        ${exam.password ? `
+          <div class="fact">
+            <span>Access code</span>
+            <b>Required next</b>
+          </div>
+        ` : ''}
+      `;
+
+      $('m-go').onclick = () => {
+        location.href = `exam.html?id=${exam.id}`;
+      };
+
+      $('modal').classList.add('open');
+    }
+
+    function closeModal() {
+      $('modal').classList.remove('open');
+    }
+
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape') {
+        closeModal();
+      }
+    });
+
+    /* ---------- Performance ---------- */
+
+    function drawHistory() {
+      const mine = db.attempts
+        .filter(attempt => attempt.studentId === user.id)
+        .sort((a, b) => b.date.localeCompare(a.date));
+
+      $('history').innerHTML = mine.map(attempt => {
+        const exam = db.exams.find(item =>
+          item.id === attempt.examId
+        );
+
+        let review = '';
+
+        if (exam && attempt.detail) {
+          review = exam.allowReview
+            ? `
+              <a class="btn sm"
+                href="review.html?attempt=${attempt.id}">
+                Review Answers
+              </a>
+            `
+            : '<span class="chip">Review off</span>';
+        }
+
+        return `
+          <div class="card row">
+            <div>
+              <b>${esc(exam ? exam.title : 'Assessment')}</b>
+
+              <div class="muted">
+                Completed: ${esc(attempt.date)}
+              </div>
+            </div>
+
+            <div class="actions">
+              <div style="text-align:right">
+                <b>
+                  ${attempt.score}/${attempt.total}
+                  (${attempt.percentage}%)
+                </b>
+
+                <div class="${
+                  attempt.status === 'Passed' ? 'pass' : 'fail'
+                }">
+                  ${esc(attempt.status)}
+                </div>
+              </div>
+
+              ${review}
+            </div>
+          </div>
+        `;
+      }).join('') ||
+      '<p class="muted">No past examination records found.</p>';
+    }
+
+    drawSubjects();
+    drawHistory();
   </script>
 </body>
 </html>

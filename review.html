@@ -81,6 +81,8 @@
             <div class="${att.status === 'Passed' ? 'pass' : 'fail'}">${att.percentage}% · ${att.status}</div>
           </div>
         </div>
+        <br>
+        
         <div class="tabs" style="margin:0">
           <button class="${filter === 'all' ? 'active' : ''}" onclick="render('all')">All Questions (${all.length})</button>
           <button class="${filter === 'wrong' ? 'active' : ''}" onclick="render('wrong')">Incorrect Only (${all.filter(d => !d.correct).length})</button>
