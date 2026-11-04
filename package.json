@@ -6,5 +6,10 @@
   "description": "Local Node backend for the Exam Portal and Supabase Postgres connection",
   "scripts": {
     "start": "node server.js"
+  },
+  "dependencies": {
+    "dotenv": "^18.0.9",
+    "express": "^5.3.0",
+    "pg": "^8.23.1"
   }
 }

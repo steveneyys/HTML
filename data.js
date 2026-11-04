@@ -210,23 +210,86 @@ function migrate(db) {
 
 const DB = {
   load() {
-    let db = null;
-
     try {
-      const raw = localStorage.getItem(KEY);
+      // The current pages use synchronous data access. Keep their interface
+      // while loading/saving the shared database snapshot through the local API.
+      const request = new XMLHttpRequest();
+      request.open('GET', '/api/app-state', false);
+      request.send();
 
-      if (raw) {
-        db = JSON.parse(raw);
+      if (request.status !== 200) {
+        throw new Error(`API returned ${request.status}`);
       }
-    } catch (error) {
-      // Fall back to seed data if stored JSON cannot be read.
-    }
 
-    return migrate(db || structuredClone(DEFAULT_DB));
+      const result = JSON.parse(request.responseText);
+      if (result.state) {
+        const db = migrate(result.state);
+        DB.cache(db);
+        return db;
+      }
+
+      // First visit: carry this browser's existing data to Supabase. If this
+      // browser has no saved data, use the starter data below.
+      const cached = DB.readCache();
+      const db = migrate(cached || structuredClone(DEFAULT_DB));
+      DB.save(db);
+      return db;
+    } catch (error) {
+      console.error('Could not load Supabase app data:', error);
+      DB.warnOnce('Could not load/save Supabase data. The browser copy is being used.');
+      return migrate(DB.readCache() || structuredClone(DEFAULT_DB));
+    }
   },
 
   save(db) {
-    localStorage.setItem(KEY, JSON.stringify(db));
+    const request = new XMLHttpRequest();
+    request.open('PUT', '/api/app-state', false);
+    request.setRequestHeader('Content-Type', 'application/json');
+    request.send(JSON.stringify({ state: db }));
+
+    if (request.status !== 200) {
+      console.error('Could not save Supabase app data:', request.responseText);
+      DB.cache(db);
+      DB.warnOnce('Could not save to Supabase. Your latest changes are only in this browser.');
+      return false;
+    }
+
+    DB.cache(db);
+    return true;
+  },
+
+  cache(db) {
+    const safe = structuredClone(db);
+    safe.users.forEach(user => delete user.password);
+    localStorage.setItem(KEY, JSON.stringify(safe));
+  },
+
+  readCache() {
+    try {
+      const raw = localStorage.getItem(KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  },
+
+  warnOnce(message) {
+    if (DB.warningShown) return;
+    DB.warningShown = true;
+    alert(message);
+  },
+
+  warningShown: false
+};
+
+const Auth = {
+  login(username, password) {
+    const request = new XMLHttpRequest();
+    request.open('POST', '/api/auth/login', false);
+    request.setRequestHeader('Content-Type', 'application/json');
+    request.send(JSON.stringify({ username, password }));
+    if (request.status !== 200) return null;
+    return JSON.parse(request.responseText).user || null;
   }
 };
 

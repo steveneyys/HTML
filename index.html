@@ -35,11 +35,8 @@
   <script>
     $('form').onsubmit = e => {
       e.preventDefault();
-
-      const user = DB.load().users.find(x =>
-        x.username === $('u').value.trim() &&
-        x.password === $('p').value.trim()
-      );
+      DB.load(); // Ensure the initial browser data is copied to the database.
+      const user = Auth.login($('u').value.trim(), $('p').value);
 
       if (!user) {
         $('err').textContent = 'Invalid username or password.';
