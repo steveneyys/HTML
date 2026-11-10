@@ -18,12 +18,25 @@
 
     <form id="form">
       <label for="u">Username</label>
-      <input id="u" required placeholder="Enter your username">
+      <input
+        id="u"
+        name="username"
+        autocomplete="username"
+        required
+        placeholder="Enter your username"
+      >
 
       <label for="p">Password</label>
-      <input id="p" type="password" required placeholder="Enter your password">
+      <input
+        id="p"
+        name="password"
+        type="password"
+        autocomplete="current-password"
+        required
+        placeholder="Enter your password"
+      >
 
-      <p id="err" class="err hidden"></p>
+      <p id="err" class="err hidden" role="alert"></p>
 
       <button type="submit" class="btn" style="width:100%;margin-top:16px">
         Sign In
@@ -33,19 +46,45 @@
 
   <script src="data.js"></script>
   <script>
-    $('form').onsubmit = e => {
-      e.preventDefault();
-      DB.load(); // Ensure the initial browser data is copied to the database.
-      const user = Auth.login($('u').value.trim(), $('p').value);
+    $('form').onsubmit = async event => {
+      event.preventDefault();
 
-      if (!user) {
-        $('err').textContent = 'Invalid username or password.';
-        $('err').classList.remove('hidden');
-        return;
+      const form = $('form');
+      const button = form.querySelector('button[type="submit"]');
+      const errorMessage = $('err');
+
+      button.disabled = true;
+      button.textContent = 'Signing in…';
+      errorMessage.textContent = '';
+      errorMessage.classList.add('hidden');
+
+      try {
+        const user = await Auth.login(
+          $('u').value.trim(),
+          $('p').value
+        );
+
+        if (!user || !HOME[user.role]) {
+          throw new Error('Account role is missing or invalid.');
+        }
+
+        Session.set(user);
+        location.href = HOME[user.role];
+      } catch (error) {
+        if (error.name === 'TimeoutError' || error.name === 'AbortError') {
+          errorMessage.textContent =
+            'Login timed out. Check that the PHP server and database are running, then try again.';
+        } else if (error.status === 401) {
+          errorMessage.textContent = 'Invalid username or password.';
+        } else {
+          errorMessage.textContent =
+            error.message || 'Could not connect to the login service.';
+        }
+
+        errorMessage.classList.remove('hidden');
+        button.disabled = false;
+        button.textContent = 'Sign In';
       }
-
-      Session.set(user);
-      location.href = HOME[user.role];
     };
   </script>
 </body>
