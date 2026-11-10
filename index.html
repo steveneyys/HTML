@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="./css/style.css">
 </head>
 <body>
-  <div class="center card stack">
+  <main class="center card stack">
     <div style="text-align:center">
       <span class="logo-img lg">
         <img src="Logo.png" alt="Mateo University">
@@ -16,19 +16,19 @@
       <h2>Institutional Exam Portal</h2>
     </div>
 
-    <form id="form">
-      <label for="u">Username</label>
+    <form id="login-form">
+      <label for="username">Username</label>
       <input
-        id="u"
+        id="username"
         name="username"
         autocomplete="username"
         required
         placeholder="Enter your username"
       >
 
-      <label for="p">Password</label>
+      <label for="password">Password</label>
       <input
-        id="p"
+        id="password"
         name="password"
         type="password"
         autocomplete="current-password"
@@ -36,56 +36,82 @@
         placeholder="Enter your password"
       >
 
-      <p id="err" class="err hidden" role="alert"></p>
+      <p id="message" class="err hidden" role="alert" aria-live="polite"></p>
 
-      <button type="submit" class="btn" style="width:100%;margin-top:16px">
+      <button
+        id="login-button"
+        type="submit"
+        class="btn"
+        style="width:100%;margin-top:16px"
+      >
         Sign In
       </button>
     </form>
-  </div>
+
+    <p style="text-align:center;margin:0">
+      Don’t have an account?
+      <a href="register.html">Register here</a>
+    </p>
+  </main>
 
   <script src="data.js"></script>
   <script>
-    $('form').onsubmit = async event => {
+    const form = document.getElementById('login-form');
+    const message = document.getElementById('message');
+    const button = document.getElementById('login-button');
+
+    form.addEventListener('submit', async event => {
       event.preventDefault();
 
-      const form = $('form');
-      const button = form.querySelector('button[type="submit"]');
-      const errorMessage = $('err');
-
+      message.textContent = '';
+      message.classList.add('hidden');
       button.disabled = true;
       button.textContent = 'Signing in…';
-      errorMessage.textContent = '';
-      errorMessage.classList.add('hidden');
+
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
 
       try {
-        const user = await Auth.login(
-          $('u').value.trim(),
-          $('p').value
-        );
+        const response = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ username, password })
+        });
 
-        if (!user || !HOME[user.role]) {
-          throw new Error('Account role is missing or invalid.');
+        const result = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          if (result.code === 'PENDING_APPROVAL') {
+            throw new Error(
+              'Your registration is waiting for admin approval. Please try again after your account is approved.'
+            );
+          }
+
+          throw new Error(result.message || 'Could not sign in.');
+        }
+
+        const user = result.user;
+
+        if (!user || !user.role) {
+          throw new Error('The server returned an invalid account.');
+        }
+
+        if (!HOME[user.role]) {
+          throw new Error('Your account does not have a valid role.');
         }
 
         Session.set(user);
-        location.href = HOME[user.role];
+        window.location.href = HOME[user.role];
       } catch (error) {
-        if (error.name === 'TimeoutError' || error.name === 'AbortError') {
-          errorMessage.textContent =
-            'Login timed out. Check that the PHP server and database are running, then try again.';
-        } else if (error.status === 401) {
-          errorMessage.textContent = 'Invalid username or password.';
-        } else {
-          errorMessage.textContent =
-            error.message || 'Could not connect to the login service.';
-        }
-
-        errorMessage.classList.remove('hidden');
+        message.textContent =
+          error.message ||
+          'Could not connect to the login service. Check that PHP and Supabase are available.';
+        message.classList.remove('hidden');
         button.disabled = false;
         button.textContent = 'Sign In';
       }
-    };
+    });
   </script>
 </body>
 </html>

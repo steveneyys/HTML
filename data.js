@@ -288,8 +288,27 @@ const Auth = {
     request.open('POST', '/api/auth/login', false);
     request.setRequestHeader('Content-Type', 'application/json');
     request.send(JSON.stringify({ username, password }));
-    if (request.status !== 200) return null;
-    return JSON.parse(request.responseText).user || null;
+
+    let result = {};
+
+    try {
+      result = JSON.parse(request.responseText || '{}');
+    } catch {
+      result = {};
+    }
+
+    if (request.status !== 200) {
+      const error = new Error(
+        result.message || 'Could not sign in.'
+      );
+
+      error.status = request.status;
+      error.code = result.code || '';
+
+      throw error;
+    }
+
+    return result.user || null;
   }
 };
 
@@ -565,9 +584,18 @@ function requireRole(...roles) {
   return user;
 }
 
-function logout() {
-  Session.clear();
-  location.href = 'index.html';
+async function logout() {
+  try {
+    await fetch('/api/auth/logout', {
+      method: 'POST',
+      credentials: 'same-origin'
+    });
+  } catch (error) {
+    console.error('Could not end the server session:', error);
+  } finally {
+    Session.clear();
+    window.location.href = 'index.html';
+  }
 }
 
 function renderNav(user, links = []) {

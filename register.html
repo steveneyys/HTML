@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Register | Institutional Exam Portal</title>
+  <link rel="icon" href="Logo.png">
+  <link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+  <div class="center card stack">
+    <div style="text-align:center">
+      <span class="logo-img lg">
+        <img src="Logo.png" alt="Mateo University">
+      </span>
+      <h2>Create an Account</h2>
+      <p class="muted">Your account will be reviewed by an administrator.</p>
+    </div>
+
+    <form id="register-form">
+      <label for="name">Full Name</label>
+      <input id="name" name="name" autocomplete="name" required
+             placeholder="Enter your full name">
+
+      <label for="username">Username</label>
+      <input id="username" name="username" autocomplete="username" required
+             placeholder="Create a username">
+
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password"
+             autocomplete="new-password" minlength="8" required
+             placeholder="At least 8 characters">
+
+      <label for="confirm-password">Confirm Password</label>
+      <input id="confirm-password" name="confirmPassword" type="password"
+             autocomplete="new-password" minlength="8" required
+             placeholder="Re-enter your password">
+
+      <p id="message" role="status" aria-live="polite"></p>
+
+      <button id="register-button" type="submit" class="btn"
+              style="width:100%;margin-top:16px">
+        Register
+      </button>
+    </form>
+
+    <p style="text-align:center">
+      Already registered? <a href="index.html">Sign in</a>
+    </p>
+  </div>
+
+  <script>
+    const form = document.getElementById('register-form');
+    const message = document.getElementById('message');
+    const button = document.getElementById('register-button');
+
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      message.textContent = '';
+
+      const name = document.getElementById('name').value.trim();
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+      const confirmPassword =
+        document.getElementById('confirm-password').value;
+
+      if (password !== confirmPassword) {
+        message.textContent = 'Passwords do not match.';
+        return;
+      }
+
+      button.disabled = true;
+      button.textContent = 'Submitting…';
+
+      try {
+        const response = await fetch('/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, username, password })
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result.message || 'Registration failed.');
+        }
+
+        form.innerHTML = `
+          <div class="card" role="status">
+            <h3>Wait for approval</h3>
+            <p>Your registration was submitted. Please wait for an admin
+            to approve your account.</p>
+            <a href="index.html">Return to sign in</a>
+          </div>
+        `;
+      } catch (error) {
+        message.textContent = error.message;
+        button.disabled = false;
+        button.textContent = 'Register';
+      }
+    });
+  </script>
+</body>
+</html>

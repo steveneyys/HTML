@@ -1,101 +1,189 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Admin | ExamPortal</title>
   <link rel="stylesheet" href="./css/style.css">
 </head>
 <body>
   <div class="wrap">
     <h1>Admin Control Panel</h1>
+
     <div class="grid">
-      <div class="card"><div class="muted">REGISTERED USERS</div><div id="s-users" class="stat"></div></div>
-      <div class="card"><div class="muted">ACTIVE COURSES</div><div id="s-courses" class="stat"></div></div>
+      <div class="card">
+        <div class="muted">APPROVED USERS</div>
+        <div id="s-users" class="stat"></div>
+      </div>
+      <div class="card">
+        <div class="muted">ACTIVE COURSES</div>
+        <div id="s-courses" class="stat"></div>
+      </div>
     </div>
 
     <div class="tabs">
-      <button data-tab="users" class="active" onclick="tab('users')">User Accounts</button>
-      <button data-tab="subjects" onclick="tab('subjects')">Subjects</button>
-      <button data-tab="assign" onclick="tab('assign')">Faculty Assignments</button>
-      <button data-tab="analytics" onclick="tab('analytics')">Analytics</button>
+      <button data-tab="users" class="active" onclick="tab('users')">
+        User Accounts
+      </button>
+      <button data-tab="subjects" onclick="tab('subjects')">
+        Subjects
+      </button>
+      <button data-tab="assign" onclick="tab('assign')">
+        Faculty Assignments
+      </button>
+      <button data-tab="analytics" onclick="tab('analytics')">
+        Analytics
+      </button>
     </div>
 
-    <!-- User accounts: directory table + a form that's hidden until Add/Edit is clicked -->
+    <!-- User accounts and registration approvals -->
     <section id="users" class="pane stack active">
-      <div id="user-form" class="card stack hidden">
-        <h3 id="uf-title" style="margin:0"></h3>
-        <div class="grid">
-          <div><label>Full Name</label><input id="uf-name"></div>
-          <div><label>Username</label><input id="uf-username"></div>
-          <div><label>Password</label><input id="uf-password" type="text" autocomplete="off"></div>
-          <div><label>Role</label>
-            <select id="uf-role">
-              <option value="student">Student</option>
-              <option value="faculty">Faculty</option>
-              <option value="admin">Admin</option>
-            </select>
-          </div>
-        </div>
-        <p id="uf-err" class="err hidden"></p>
+
+      <div class="card">
         <div class="row">
-          <button class="btn ghost" onclick="closeForm()">Cancel</button>
-          <button class="btn ok" onclick="saveUser()">Save Account</button>
+          <h3 style="margin:0">Pending Registrations</h3>
+          <button
+            class="btn sm"
+            type="button"
+            onclick="loadPendingRegistrations()"
+          >
+            Refresh
+          </button>
         </div>
+
+        <p class="muted">
+          Choose a role for each account, then approve the registration.
+        </p>
+
+        <p id="pending-error" class="err hidden" role="alert"></p>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Username</th>
+              <th>Assign Role</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="pending-users-body">
+            <tr>
+              <td colspan="4" class="muted">
+                Loading registrations…
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
 
       <div class="card">
-        <div class="row"><h3 style="margin:0">User Directory</h3><button class="btn" onclick="openForm()">+ Add User</button></div>
+        <div class="row">
+          <h3 style="margin:0">Approved User Directory</h3>
+        </div>
+
         <table>
-          <thead><tr><th>Name</th><th>Username</th><th>Role</th><th></th></tr></thead>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Username</th>
+              <th>Role</th>
+            </tr>
+          </thead>
           <tbody id="users-body"></tbody>
         </table>
       </div>
     </section>
 
-    <!-- Subjects: same add/edit-form pattern as above, but for subjects -->
+    <!-- Subjects -->
     <section id="subjects" class="pane stack">
       <div id="subject-form" class="card stack hidden">
         <h3 id="sf-title" style="margin:0"></h3>
+
         <div class="grid">
-          <div><label>Course Code</label><input id="sf-code" placeholder="e.g. CS101"></div>
-          <div><label>Course Title</label><input id="sf-name" placeholder="e.g. Introduction to Computer Science"></div>
+          <div>
+            <label for="sf-code">Course Code</label>
+            <input id="sf-code" placeholder="e.g. CS101">
+          </div>
+          <div>
+            <label for="sf-name">Course Title</label>
+            <input
+              id="sf-name"
+              placeholder="e.g. Introduction to Computer Science"
+            >
+          </div>
         </div>
-        <div><label>Description</label><textarea id="sf-desc" rows="3"></textarea></div>
+
+        <div>
+          <label for="sf-desc">Description</label>
+          <textarea id="sf-desc" rows="3"></textarea>
+        </div>
+
         <div>
           <label>Assigned Faculty</label>
           <div id="sf-faculty" class="grid" style="gap:4px"></div>
         </div>
-        <p id="sf-err" class="err hidden"></p>
+
+        <p id="sf-err" class="err hidden" role="alert"></p>
+
         <div class="row">
-          <button class="btn ghost" onclick="closeSubject()">Cancel</button>
-          <button class="btn ok" onclick="saveSubject()">Save Subject</button>
+          <button class="btn ghost" type="button" onclick="closeSubject()">
+            Cancel
+          </button>
+          <button class="btn ok" type="button" onclick="saveSubject()">
+            Save Subject
+          </button>
         </div>
       </div>
 
       <div class="card">
-        <div class="row"><h3 style="margin:0">Subject List</h3><button class="btn" onclick="openSubject()">+ Add Subject</button></div>
+        <div class="row">
+          <h3 style="margin:0">Subject List</h3>
+          <button class="btn" type="button" onclick="openSubject()">
+            + Add Subject
+          </button>
+        </div>
+
         <table>
-          <thead><tr><th>Code</th><th>Title</th><th>Faculty</th><th>Students</th><th>Exams</th><th></th></tr></thead>
+          <thead>
+            <tr>
+              <th>Code</th>
+              <th>Title</th>
+              <th>Faculty</th>
+              <th>Students</th>
+              <th>Exams</th>
+              <th></th>
+            </tr>
+          </thead>
           <tbody id="subj-body"></tbody>
         </table>
       </div>
     </section>
 
-    <!-- Faculty assignments: lets more than one faculty member teach the same subject -->
+    <!-- Faculty assignments -->
     <section id="assign" class="pane card">
       <table>
-        <thead><tr><th>Code</th><th>Course</th><th>Assigned Faculty</th><th style="text-align:right">Add Faculty</th></tr></thead>
+        <thead>
+          <tr>
+            <th>Code</th>
+            <th>Course</th>
+            <th>Assigned Faculty</th>
+            <th style="text-align:right">Add Faculty</th>
+          </tr>
+        </thead>
         <tbody id="assign-body"></tbody>
       </table>
     </section>
 
-    <!-- Proctoring (placeholder video feeds) -->
-    <section id="proctor" class="pane grid"></section>
-
     <!-- Analytics -->
     <section id="analytics" class="pane grid">
-      <div class="card"><div class="muted">AVERAGE PASS RATE</div><div id="a-pass" class="stat"></div></div>
-      <div class="card"><div class="muted">TOTAL ATTEMPTS</div><div id="a-total" class="stat"></div></div>
+      <div class="card">
+        <div class="muted">AVERAGE PASS RATE</div>
+        <div id="a-pass" class="stat"></div>
+      </div>
+      <div class="card">
+        <div class="muted">TOTAL ATTEMPTS</div>
+        <div id="a-total" class="stat"></div>
+      </div>
     </section>
   </div>
 
@@ -103,160 +191,284 @@
   <script>
     const user = requireRole('admin');
     const db = DB.load();
-    renderNav(user, [['admin.html', 'Control Panel'], ['assign.html', 'Assign Subjects']]);
 
-    let editingId = null;   // id of the user account being edited (null = adding a new one)
-    let subEditing = null;  // id of the subject being edited (null = adding a new one)
+    renderNav(user, [
+      ['admin.html', 'Control Panel'],
+      ['assign.html', 'Assign Subjects']
+    ]);
 
-    /* ---------- Draws every tab's content ---------- */
+    let subEditing = null;
+
+    function isApproved(person) {
+      // Existing accounts without a status field remain approved.
+      return person.status !== 'pending' &&
+        ['admin', 'faculty', 'student'].includes(person.role);
+    }
+
     function draw() {
-      $('s-users').textContent = db.users.length;
+      const approvedUsers = db.users.filter(isApproved);
+
+      $('s-users').textContent = approvedUsers.length;
       $('s-courses').textContent = db.subjects.length;
 
-      /* Users tab */
-      $('users-body').innerHTML = db.users.map(u => `<tr>
-        <td>${esc(u.name)}</td>
-        <td>${esc(u.username)}</td>
-        <td><span class="badge">${u.role}</span></td>
-        <td><div class="actions" style="justify-content:flex-end">
-          <button class="btn sm" onclick="openForm(${u.id})">Edit</button>
-          <button class="btn ghost sm" onclick="delUser(${u.id})">Remove</button>
-        </div></td>
-      </tr>`).join('');
+      $('users-body').innerHTML = approvedUsers.map(person => `
+        <tr>
+          <td>${esc(person.name || '')}</td>
+          <td>${esc(person.username || '')}</td>
+          <td><span class="badge">${esc(person.role)}</span></td>
+        </tr>
+      `).join('') ||
+        '<tr><td colspan="3" class="muted">No approved users yet.</td></tr>';
 
-      /* Subjects tab */
-      $('subj-body').innerHTML = db.subjects.map(s => `<tr>
-        <td><b>${esc(s.code)}</b></td>
-        <td>${esc(s.name)}<div class="muted">${esc(s.description || '')}</div></td>
-        <td>${s.facultyIds.length}</td>
-        <td>${s.studentIds.length}</td>
-        <td>${db.exams.filter(e => e.subjectId === s.id).length}</td>
-        <td><div class="actions" style="justify-content:flex-end">
-          <button class="btn sm" onclick="openSubject(${s.id})">Edit</button>
-          <button class="btn danger sm" onclick="delSubject(${s.id})">Delete</button>
-        </div></td>
-      </tr>`).join('') || '<tr><td colspan="6" class="muted">No subjects yet.</td></tr>';
+      $('subj-body').innerHTML = db.subjects.map(subject => `
+        <tr>
+          <td><b>${esc(subject.code)}</b></td>
+          <td>
+            ${esc(subject.name)}
+            <div class="muted">${esc(subject.description || '')}</div>
+          </td>
+          <td>${subject.facultyIds.length}</td>
+          <td>${subject.studentIds.length}</td>
+          <td>
+            ${db.exams.filter(exam => exam.subjectId === subject.id).length}
+          </td>
+          <td>
+            <div class="actions" style="justify-content:flex-end">
+              <button
+                class="btn sm"
+                type="button"
+                onclick="openSubject(${Number(subject.id)})"
+              >
+                Edit
+              </button>
+              <button
+                class="btn danger sm"
+                type="button"
+                onclick="delSubject(${Number(subject.id)})"
+              >
+                Delete
+              </button>
+            </div>
+          </td>
+        </tr>
+      `).join('') ||
+        '<tr><td colspan="6" class="muted">No subjects yet.</td></tr>';
 
-      /* Faculty assignments tab: each subject shows its current faculty as removable
-         chips, plus a dropdown of faculty not yet assigned to add more */
-      $('assign-body').innerHTML = db.subjects.map(s => {
-        const assigned = s.facultyIds.map(id => db.users.find(u => u.id === id)).filter(Boolean);
-        const free = db.users.filter(u => u.role === 'faculty' && !s.facultyIds.includes(u.id));
-        return `<tr>
-          <td><b>${s.code}</b></td>
-          <td>${esc(s.name)}</td>
-          <td><div class="chips">
-            ${assigned.map(f => `<span class="chip">${esc(f.name)}<button title="Remove" onclick="removeFaculty(${s.id},${f.id})">×</button></span>`).join('') || '<span class="muted">Unassigned</span>'}
-          </div></td>
-          <td>${free.length
-            ? `<div class="actions" style="justify-content:flex-end">
-                <select id="add-fac-${s.id}" class="inline">${free.map(f => `<option value="${f.id}">${esc(f.name)}</option>`).join('')}</select>
-                <button class="btn sm" onclick="addFaculty(${s.id})">Add</button>
-              </div>`
-            : '<div class="muted" style="text-align:right">All faculty assigned</div>'}</td>
-        </tr>`;
+      $('assign-body').innerHTML = db.subjects.map(subject => {
+        const assigned = subject.facultyIds
+          .map(id => db.users.find(person => person.id === id))
+          .filter(person => person && isApproved(person) && person.role === 'faculty');
+
+        const availableFaculty = db.users.filter(person =>
+          isApproved(person) &&
+          person.role === 'faculty' &&
+          !subject.facultyIds.includes(person.id)
+        );
+
+        return `
+          <tr>
+            <td><b>${esc(subject.code)}</b></td>
+            <td>${esc(subject.name)}</td>
+            <td>
+              <div class="chips">
+                ${
+                  assigned.map(faculty => `
+                    <span class="chip">
+                      ${esc(faculty.name)}
+                      <button
+                        type="button"
+                        title="Remove"
+                        onclick="removeFaculty(${Number(subject.id)}, ${Number(faculty.id)})"
+                      >×</button>
+                    </span>
+                  `).join('') ||
+                  '<span class="muted">Unassigned</span>'
+                }
+              </div>
+            </td>
+            <td>
+              ${
+                availableFaculty.length
+                  ? `
+                    <div class="actions" style="justify-content:flex-end">
+                      <select
+                        id="add-fac-${Number(subject.id)}"
+                        class="inline"
+                      >
+                        ${availableFaculty.map(faculty => `
+                          <option value="${Number(faculty.id)}">
+                            ${esc(faculty.name)}
+                          </option>
+                        `).join('')}
+                      </select>
+                      <button
+                        class="btn sm"
+                        type="button"
+                        onclick="addFaculty(${Number(subject.id)})"
+                      >
+                        Add
+                      </button>
+                    </div>
+                  `
+                  : '<div class="muted" style="text-align:right">No unassigned faculty</div>'
+              }
+            </td>
+          </tr>
+        `;
       }).join('');
 
-      /* Analytics tab */
-      const passed = db.attempts.filter(a => a.status === 'Passed').length;
-      $('a-pass').textContent = db.attempts.length ? Math.round(passed / db.attempts.length * 100) + '%' : 'N/A';
+      const passed = db.attempts.filter(
+        attempt => attempt.status === 'Passed'
+      ).length;
+
+      $('a-pass').textContent = db.attempts.length
+        ? Math.round((passed / db.attempts.length) * 100) + '%'
+        : 'N/A';
+
       $('a-total').textContent = db.attempts.length;
     }
 
-    /* ==========================================================
-       USER ACCOUNTS (add / edit / delete)
-       ========================================================== */
+    async function loadPendingRegistrations() {
+      const body = $('pending-users-body');
+      const error = $('pending-error');
 
-    // Opens the user form. Pass an id to edit that user, or nothing to add a new one.
-    function openForm(id) {
-      editingId = id ?? null;
-      const u = editingId !== null ? db.users.find(x => x.id === editingId) : null;
+      error.textContent = '';
+      error.classList.add('hidden');
+      body.innerHTML =
+        '<tr><td colspan="4" class="muted">Loading registrations…</td></tr>';
 
-      $('uf-title').textContent = u ? `Edit Account: ${u.name}` : 'Add New User';
-      $('uf-name').value = u ? u.name : '';
-      $('uf-username').value = u ? u.username : '';
-      $('uf-password').value = ''; // never pre-fill the password field
-      $('uf-password').placeholder = u ? 'Leave blank to keep current password' : 'Required';
-      $('uf-role').value = u ? u.role : 'student';
-      $('uf-err').classList.add('hidden');
+      try {
+        const response = await fetch('/api/admin/pending-users', {
+          method: 'GET',
+          credentials: 'same-origin'
+        });
 
-      $('user-form').classList.remove('hidden');
-      tab('users');
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
+        const result = await response.json().catch(() => ({}));
 
-    function closeForm() {
-      $('user-form').classList.add('hidden');
-      editingId = null;
-    }
+        if (!response.ok) {
+          throw new Error(
+            result.message || 'Could not load pending registrations.'
+          );
+        }
 
-    function saveUser() {
-      const name = $('uf-name').value.trim();
-      const username = $('uf-username').value.trim();
-      const password = $('uf-password').value;
-      const role = $('uf-role').value;
-      const fail = m => { $('uf-err').textContent = m; $('uf-err').classList.remove('hidden'); };
+        const pendingUsers = Array.isArray(result.users)
+          ? result.users
+          : [];
 
-      if (!name || !username) return fail('Name and username are required.');
-      if (db.users.some(u => u.username === username && u.id !== editingId)) return fail('That username is already taken.');
-      if (editingId === null && !password) return fail('A password is required for new accounts.');
-      if (password && password.length < 4) return fail('Password must be at least 4 characters.');
+        if (pendingUsers.length === 0) {
+          body.innerHTML =
+            '<tr><td colspan="4" class="muted">No pending registrations.</td></tr>';
+          return;
+        }
 
-      if (editingId === null) {
-        // Adding a new account
-        db.users.push({ id: Date.now(), username, password, role, name });
-      } else {
-        // Editing an existing account
-        const u = db.users.find(x => x.id === editingId);
-        if (u.id === user.id && role !== 'admin') return fail('You cannot change your own role.'); // stop locking yourself out
-
-        Object.assign(u, { name, username, role });
-        if (password) u.password = password; // blank password = keep the old one
-        if (u.id === user.id) Session.set(u); // keep the logged-in session in sync if editing yourself
-
-        // If the role changed away from faculty/student, clean up subject assignments that no longer make sense
-        if (role !== 'faculty') db.subjects.forEach(s => s.facultyIds = s.facultyIds.filter(f => f !== u.id));
-        if (role !== 'student') db.subjects.forEach(s => s.studentIds = s.studentIds.filter(x => x !== u.id));
+        body.innerHTML = pendingUsers.map(person => `
+          <tr data-pending-id="${esc(String(person.id))}">
+            <td>${esc(person.name || '')}</td>
+            <td>${esc(person.username || '')}</td>
+            <td>
+              <select class="pending-role" aria-label="Choose role">
+                <option value="student">Student</option>
+                <option value="faculty">Faculty</option>
+                <option value="admin">Admin</option>
+              </select>
+            </td>
+            <td>
+              <button
+                class="btn sm approve-pending"
+                type="button"
+              >
+                Approve
+              </button>
+            </td>
+          </tr>
+        `).join('');
+      } catch (requestError) {
+        body.innerHTML = '';
+        error.textContent = requestError.message;
+        error.classList.remove('hidden');
       }
-
-      DB.save(db);
-      closeForm();
-      draw();
     }
 
-    function delUser(id) {
-      if (id === user.id) return alert('Cannot delete the logged-in admin account.');
-      if (!confirm('Remove this account?')) return;
+    $('pending-users-body').addEventListener('click', async event => {
+      const button = event.target.closest('.approve-pending');
 
-      db.users = db.users.filter(u => u.id !== id);
-      db.subjects.forEach(s => {
-        s.facultyIds = s.facultyIds.filter(f => f !== id);
-        s.studentIds = s.studentIds.filter(x => x !== id);
-      });
-      db.retakes = db.retakes.filter(r => r.studentId !== id);
-      DB.save(db);
-      draw();
-    }
+      if (!button) return;
 
-    /* ==========================================================
-       SUBJECTS (add / edit / delete)
-       ========================================================== */
+      const row = button.closest('tr');
+      const id = row.dataset.pendingId;
+      const role = row.querySelector('.pending-role').value;
+
+      button.disabled = true;
+      button.textContent = 'Approving…';
+
+      try {
+        const response = await fetch(
+          `/api/admin/users/${encodeURIComponent(id)}/approve`,
+          {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ role })
+          }
+        );
+
+        const result = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          throw new Error(result.message || 'Could not approve this account.');
+        }
+
+        alert(`${row.cells[0].textContent} was approved as ${role}.`);
+        window.location.reload();
+      } catch (requestError) {
+        alert(requestError.message);
+        button.disabled = false;
+        button.textContent = 'Approve';
+      }
+    });
 
     function openSubject(id) {
       subEditing = id ?? null;
-      const s = subEditing !== null ? db.subjects.find(x => x.id === subEditing) : null;
 
-      $('sf-title').textContent = s ? `Edit Subject: ${s.code}` : 'Add New Subject';
-      $('sf-code').value = s ? s.code : '';
-      $('sf-name').value = s ? s.name : '';
-      $('sf-desc').value = s ? (s.description || '') : '';
+      const subject = subEditing !== null
+        ? db.subjects.find(item => item.id === subEditing)
+        : null;
 
-      // One checkbox per faculty account, pre-checked if they're already assigned
-      $('sf-faculty').innerHTML = db.users.filter(u => u.role === 'faculty').map(f => `
-        <label class="agree"><input type="checkbox" value="${f.id}" ${s && s.facultyIds.includes(f.id) ? 'checked' : ''}>${esc(f.name)}</label>`).join('')
-        || '<span class="muted">No faculty accounts yet.</span>';
+      $('sf-title').textContent = subject
+        ? `Edit Subject: ${subject.code}`
+        : 'Add New Subject';
+
+      $('sf-code').value = subject ? subject.code : '';
+      $('sf-name').value = subject ? subject.name : '';
+      $('sf-desc').value = subject
+        ? (subject.description || '')
+        : '';
+
+      $('sf-faculty').innerHTML = db.users
+        .filter(person =>
+          isApproved(person) && person.role === 'faculty'
+        )
+        .map(faculty => `
+          <label class="agree">
+            <input
+              type="checkbox"
+              value="${Number(faculty.id)}"
+              ${
+                subject &&
+                subject.facultyIds.includes(faculty.id)
+                  ? 'checked'
+                  : ''
+              }
+            >
+            ${esc(faculty.name)}
+          </label>
+        `).join('') ||
+        '<span class="muted">No approved faculty accounts yet.</span>';
+
+      $('sf-err').textContent = '';
       $('sf-err').classList.add('hidden');
-
       $('subject-form').classList.remove('hidden');
       tab('subjects');
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -271,61 +483,131 @@
       const code = $('sf-code').value.trim().toUpperCase();
       const name = $('sf-name').value.trim();
       const description = $('sf-desc').value.trim();
-      const facultyIds = [...document.querySelectorAll('#sf-faculty input:checked')].map(x => +x.value);
-      const fail = m => { $('sf-err').textContent = m; $('sf-err').classList.remove('hidden'); };
+      const facultyIds = [
+        ...document.querySelectorAll('#sf-faculty input:checked')
+      ].map(input => Number(input.value));
 
-      if (!code || !name) return fail('Course code and title are required.');
-      if (db.subjects.some(s => s.code === code && s.id !== subEditing)) return fail('That course code already exists.');
+      const fail = text => {
+        $('sf-err').textContent = text;
+        $('sf-err').classList.remove('hidden');
+      };
 
-      if (subEditing === null) {
-        // New subject starts with no enrolled students
-        db.subjects.push({ id: Date.now(), code, name, description, facultyIds, studentIds: [] });
-      } else {
-        Object.assign(db.subjects.find(s => s.id === subEditing), { code, name, description, facultyIds });
+      if (!code || !name) {
+        return fail('Course code and title are required.');
       }
 
-      DB.save(db);
+      if (db.subjects.some(subject =>
+        subject.code === code && subject.id !== subEditing
+      )) {
+        return fail('That course code already exists.');
+      }
+
+      if (subEditing === null) {
+        db.subjects.push({
+          id: Date.now(),
+          code,
+          name,
+          description,
+          facultyIds,
+          studentIds: []
+        });
+      } else {
+        const subject = db.subjects.find(
+          item => item.id === subEditing
+        );
+
+        Object.assign(subject, {
+          code,
+          name,
+          description,
+          facultyIds
+        });
+      }
+
+      if (!DB.save(db)) {
+        return fail('Could not save the subject to Supabase.');
+      }
+
       closeSubject();
       draw();
     }
 
     function delSubject(id) {
-      const s = db.subjects.find(x => x.id === id);
-      const examIds = db.exams.filter(e => e.subjectId === id).map(e => e.id);
-      const attemptCount = db.attempts.filter(a => examIds.includes(a.examId)).length;
+      const subject = db.subjects.find(item => item.id === id);
 
-      if (!confirm(`Delete ${s.code} - ${s.name}?\n\nThis also removes ${examIds.length} exam(s), ${attemptCount} student attempt(s) and their retake permissions. This cannot be undone.`)) return;
+      if (!subject) return;
 
-      // Delete the subject AND everything that depends on it
-      db.subjects = db.subjects.filter(x => x.id !== id);
-      db.exams = db.exams.filter(e => e.subjectId !== id);
-      db.attempts = db.attempts.filter(a => !examIds.includes(a.examId));
-      db.retakes = db.retakes.filter(r => !examIds.includes(r.examId));
-      DB.save(db);
+      const examIds = db.exams
+        .filter(exam => exam.subjectId === id)
+        .map(exam => exam.id);
+
+      const attemptCount = db.attempts
+        .filter(attempt => examIds.includes(attempt.examId))
+        .length;
+
+      const confirmed = confirm(
+        `Delete ${subject.code} - ${subject.name}?\n\n` +
+        `This also removes ${examIds.length} exam(s), ` +
+        `${attemptCount} student attempt(s), and their retake permissions.`
+      );
+
+      if (!confirmed) return;
+
+      db.subjects = db.subjects.filter(item => item.id !== id);
+      db.exams = db.exams.filter(exam => exam.subjectId !== id);
+      db.attempts = db.attempts.filter(
+        attempt => !examIds.includes(attempt.examId)
+      );
+      db.retakes = db.retakes.filter(
+        retake => !examIds.includes(retake.examId)
+      );
+
+      if (!DB.save(db)) {
+        alert('Could not save changes to Supabase.');
+        return;
+      }
+
       draw();
     }
 
-    /* ==========================================================
-       FACULTY ASSIGNMENTS (several faculty per subject)
-       ========================================================== */
+    function addFaculty(subjectId) {
+      const select = $(`add-fac-${subjectId}`);
+      const facultyId = Number(select?.value);
+      const subject = db.subjects.find(item => item.id === subjectId);
 
-    function addFaculty(subId) {
-      const fid = +$(`add-fac-${subId}`).value;
-      const sub = db.subjects.find(s => s.id === subId);
-      if (!fid || sub.facultyIds.includes(fid)) return;
-      sub.facultyIds.push(fid);
-      DB.save(db);
+      if (!facultyId || !subject || subject.facultyIds.includes(facultyId)) {
+        return;
+      }
+
+      subject.facultyIds.push(facultyId);
+
+      if (!DB.save(db)) {
+        alert('Could not save changes to Supabase.');
+        return;
+      }
+
       draw();
     }
 
-    function removeFaculty(subId, fid) {
-      const sub = db.subjects.find(s => s.id === subId);
-      sub.facultyIds = sub.facultyIds.filter(f => f !== fid);
-      DB.save(db);
+    function removeFaculty(subjectId, facultyId) {
+      const subject = db.subjects.find(item => item.id === subjectId);
+
+      if (!subject) return;
+
+      subject.facultyIds = subject.facultyIds.filter(
+        id => id !== facultyId
+      );
+
+      if (!DB.save(db)) {
+        alert('Could not save changes to Supabase.');
+        return;
+      }
+
       draw();
     }
 
     draw();
+    loadPendingRegistrations();
   </script>
 </body>
 </html>
