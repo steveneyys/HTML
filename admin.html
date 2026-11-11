@@ -373,11 +373,11 @@
               </select>
             </td>
             <td>
-              <button
-                class="btn sm approve-pending"
-                type="button"
-              >
-                Approve
+              <button class="btn sm approve-pending" type="button">
+               Approve
+              </button>
+              <button class="btn ghost sm decline-pending" type="button">
+              Decline
               </button>
             </td>
           </tr>
@@ -390,44 +390,66 @@
     }
 
     $('pending-users-body').addEventListener('click', async event => {
-      const button = event.target.closest('.approve-pending');
+  const approveButton = event.target.closest('.approve-pending');
+  const declineButton = event.target.closest('.decline-pending');
+  const button = approveButton || declineButton;
 
-      if (!button) return;
+  if (!button) return;
 
-      const row = button.closest('tr');
-      const id = row.dataset.pendingId;
-      const role = row.querySelector('.pending-role').value;
+  const row = button.closest('tr');
+  const id = row.dataset.pendingId;
+  const isDecline = Boolean(declineButton);
 
-      button.disabled = true;
-      button.textContent = 'Approving…';
+  if (
+    isDecline &&
+    !confirm(`Decline the registration for ${row.cells[0].textContent}?`)
+  ) {
+    return;
+  }
 
-      try {
-        const response = await fetch(
-          `/api/admin/users/${encodeURIComponent(id)}/approve`,
-          {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ role })
-          }
-        );
+  const roleSelect = row.querySelector('.pending-role');
+  const role = roleSelect ? roleSelect.value : '';
 
-        const result = await response.json().catch(() => ({}));
+  button.disabled = true;
+  button.textContent = isDecline ? 'Declining…' : 'Approving…';
 
-        if (!response.ok) {
-          throw new Error(result.message || 'Could not approve this account.');
-        }
+  try {
+    const action = isDecline ? 'decline' : 'approve';
 
-        alert(`${row.cells[0].textContent} was approved as ${role}.`);
-        window.location.reload();
-      } catch (requestError) {
-        alert(requestError.message);
-        button.disabled = false;
-        button.textContent = 'Approve';
+    const response = await fetch(
+      `/api/admin/users/${encodeURIComponent(id)}/${action}`,
+      {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(isDecline ? {} : { role })
       }
-    });
+    );
+
+    const result = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(
+        result.message ||
+        `Could not ${isDecline ? 'decline' : 'approve'} this registration.`
+      );
+    }
+
+    alert(
+      isDecline
+        ? 'Registration declined.'
+        : `${row.cells[0].textContent} was approved as ${role}.`
+    );
+
+    window.location.reload();
+  } catch (requestError) {
+    alert(requestError.message);
+    button.disabled = false;
+    button.textContent = isDecline ? 'Decline' : 'Approve';
+  }
+});
 
     function openSubject(id) {
       subEditing = id ?? null;
