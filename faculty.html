@@ -116,6 +116,10 @@
         Results
       </button>
 
+      <button data-tab="attempts" onclick="openAttempts()">
+        Attempts
+      </button>
+
       <button data-tab="settings" onclick="openSettings()">
         Quiz Settings
       </button>
@@ -135,6 +139,13 @@
     <!-- STUDENTS -->
     <section id="students" class="pane">
       <div id="students-list" class="card table-scroll">
+        <div class="settings-grid" style="margin-bottom:12px">
+          <div>
+            <label for="students-section">Section</label>
+            <select id="students-section" onchange="drawStudents()"></select>
+          </div>
+        </div>
+
         <table>
           <thead>
             <tr>
@@ -191,6 +202,7 @@
                 <th>Status</th>
                 <th>Flagged</th>
                 <th>Date</th>
+                <th></th>
               </tr>
             </thead>
             <tbody id="d-body"></tbody>
@@ -250,6 +262,58 @@
 
     <!-- SUBMISSIONS: SUBJECT > ASSESSMENT > STUDENTS -->
     <section id="subs" class="pane card"></section>
+
+    <!-- ATTEMPTS -->
+    <section id="attempts" class="pane card">
+      <h2>Exam Attempts</h2>
+
+      <div class="settings-grid report-controls">
+        <div>
+          <label for="att-section">Section</label>
+          <select id="att-section" onchange="drawAttempts()"></select>
+        </div>
+
+        <div>
+          <label for="att-exam">Assessment</label>
+          <select id="att-exam" onchange="drawAttempts()"></select>
+        </div>
+
+        <div>
+          <label for="att-status">Result</label>
+          <select id="att-status" onchange="drawAttempts()">
+            <option value="">All results</option>
+            <option>Passed</option>
+            <option>Failed</option>
+          </select>
+        </div>
+
+        <div>
+          <label for="att-search">Student name or username</label>
+          <input id="att-search" type="search" oninput="drawAttempts()">
+        </div>
+      </div>
+
+      <p id="att-summary" class="muted" role="status"></p>
+
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Student</th>
+              <th>Section</th>
+              <th>Assessment</th>
+              <th>Score</th>
+              <th>%</th>
+              <th>Status</th>
+              <th>Flagged</th>
+              <th>Date</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="att-body"></tbody>
+        </table>
+      </div>
+    </section>
 
     <!-- QUIZ SETTINGS -->
     <section id="settings" class="pane card">
@@ -327,6 +391,11 @@
           <label for="report-search">Student name or username</label>
           <input id="report-search" type="search"
             oninput="drawReport(true)">
+        </div>
+
+        <div>
+          <label for="report-section">Section</label>
+          <select id="report-section" onchange="drawReport(true)"></select>
         </div>
 
         <div>
@@ -464,9 +533,46 @@
       );
     }
 
+    /* ---------- Section filters ---------- */
+
+    function fillSectionSelect(id) {
+      const select = $(id);
+      const keep = select.value || 'all';
+
+      select.innerHTML =
+        '<option value="all">All sections</option>' +
+        db.sections.map(section =>
+          `<option value="${section.id}">${esc(section.name)}</option>`
+        ).join('') +
+        '<option value="none">No section</option>';
+
+      select.value = [...select.options].some(o => o.value === keep)
+        ? keep
+        : 'all';
+    }
+
+    function matchesSection(studentId, value) {
+      if (!value || value === 'all') return true;
+
+      const section = Sections.of(db, studentId);
+
+      return value === 'none'
+        ? !section
+        : !!section && String(section.id) === value;
+    }
+
+    function answersLink(attempt) {
+      return attempt.detail
+        ? `<a class="btn sm" href="attempt.html?attempt=${attempt.id}">
+             View Answers
+           </a>`
+        : '<span class="muted">No answers saved</span>';
+    }
+
     function refreshAll() {
       drawCourses();
       drawStudents();
+      drawAttempts();
       drawSubs();
       fillRetakeSelects();
       drawRetakeTable();
@@ -921,7 +1027,12 @@
     /* ---------- Students ---------- */
 
     function drawStudents() {
-      $('students-body').innerHTML = myStudents().map(student => {
+      fillSectionSelect('students-section');
+      const section = $('students-section').value;
+
+      $('students-body').innerHTML = myStudents()
+        .filter(student => matchesSection(student.id, section))
+        .map(student => {
         const attempts = myAttempts().filter(attempt =>
           attempt.studentId === student.id
         );
@@ -954,6 +1065,79 @@
         `;
       }).join('') ||
       '<tr><td colspan="7" class="muted">No students found.</td></tr>';
+    }
+
+    /* ---------- Attempts ---------- */
+
+    function openAttempts() {
+      syncDatabase();
+      drawAttempts();
+      tab('attempts');
+    }
+
+    function drawAttempts() {
+      fillSectionSelect('att-section');
+
+      const examSelect = $('att-exam');
+      const keepExam = examSelect.value;
+
+      examSelect.innerHTML =
+        '<option value="">All assessments</option>' +
+        myExams().map(exam =>
+          `<option value="${exam.id}">${esc(exam.title)}</option>`
+        ).join('');
+
+      examSelect.value = [...examSelect.options].some(
+        o => o.value === keepExam
+      ) ? keepExam : '';
+
+      const section = $('att-section').value;
+      const examId = $('att-exam').value;
+      const status = $('att-status').value;
+      const search = $('att-search').value.trim().toLowerCase();
+
+      const rows = myAttempts().filter(attempt => {
+        const student = db.users.find(u => u.id === attempt.studentId);
+        const text =
+          `${student?.name || ''} ${student?.username || ''}`.toLowerCase();
+
+        return matchesSection(attempt.studentId, section) &&
+          (!examId || String(attempt.examId) === examId) &&
+          (!status || attempt.status === status) &&
+          (!search || text.includes(search));
+      }).sort((a, b) =>
+        String(b.date).localeCompare(String(a.date)) ||
+        Number(b.id) - Number(a.id)
+      );
+
+      $('att-summary').textContent =
+        `${rows.length} attempt${rows.length === 1 ? '' : 's'} shown.`;
+
+      $('att-body').innerHTML = rows.map(attempt => {
+        const student = db.users.find(u => u.id === attempt.studentId);
+        const exam = db.exams.find(e => e.id === attempt.examId);
+        const sec = Sections.of(db, attempt.studentId);
+
+        return `
+          <tr>
+            <td>
+              <b>${esc(student?.name || 'Removed student')}</b>
+              <div class="muted">${esc(student?.username || '')}</div>
+            </td>
+            <td>${sec ? esc(sec.name) : '<span class="muted">—</span>'}</td>
+            <td>${esc(exam ? exam.title : 'Assessment')}</td>
+            <td>${attempt.score}/${attempt.total}</td>
+            <td>${attempt.percentage}%</td>
+            <td class="${attempt.status === 'Passed' ? 'pass' : 'fail'}">
+              ${esc(attempt.status)}
+            </td>
+            <td>${attempt.flagged !== undefined ? '⚑ ' + attempt.flagged : '—'}</td>
+            <td>${esc(attempt.date)}</td>
+            <td style="text-align:right">${answersLink(attempt)}</td>
+          </tr>
+        `;
+      }).join('') ||
+      '<tr><td colspan="9" class="muted">No attempts match these filters.</td></tr>';
     }
 
     function viewStudent(id) {
@@ -1002,10 +1186,11 @@
                 : '—'}
             </td>
             <td>${esc(attempt.date)}</td>
+            <td style="text-align:right">${answersLink(attempt)}</td>
           </tr>
         `;
       }).join('') ||
-      '<tr><td colspan="7" class="muted">This student has no attempts yet.</td></tr>';
+      '<tr><td colspan="8" class="muted">This student has no attempts yet.</td></tr>';
 
       $('students-list').classList.add('hidden');
       $('student-detail').classList.remove('hidden');
@@ -1699,6 +1884,7 @@
     function openReports() {
       syncDatabase();
       examSelect('report-exam', undefined, true);
+      fillSectionSelect('report-section');
       drawReport(true);
       tab('reports');
     }
@@ -1707,6 +1893,7 @@
       const eid = +$('report-exam').value;
       const search = $('report-search').value.trim().toLowerCase();
       const status = $('report-status').value;
+      const section = $('report-section').value;
 
       return myAttempts().filter(attempt => {
         const student = db.users.find(item =>
@@ -1719,6 +1906,7 @@
 
         return (
           (!eid || attempt.examId === eid) &&
+          matchesSection(attempt.studentId, section) &&
           (!status || attempt.status === status) &&
           (!search || studentText.includes(search))
         );

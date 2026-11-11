@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Student Answers | ExamPortal</title>
+  <link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+  <div id="root" class="wrap narrow stack"></div>
+
+  <script src="data.js"></script>
+  <script>
+    // Faculty and admin view of one student's attempt, with every answer.
+    const user = requireRole('faculty', 'admin');
+    renderNav(user, [[HOME[user.role], 'Dashboard']]);
+
+    const db = DB.load();
+    const id = new URLSearchParams(location.search).get('attempt');
+    const att = db.attempts.find(a => String(a.id) === id);
+    const exam = att && db.exams.find(e => e.id === att.examId);
+    const subject = exam && db.subjects.find(s => s.id === exam.subjectId);
+    const student = att && db.users.find(u => u.id === att.studentId);
+    const section = att && Sections.of(db, att.studentId);
+    const back = `<a class="btn ghost" href="${HOME[user.role]}">&larr; Back to Dashboard</a>`;
+
+    function blocked(msg) {
+      $('root').innerHTML = `<div class="card stack" style="text-align:center"><h2 style="margin:0">Attempt Unavailable</h2><p class="muted">${msg}</p>${back}</div>`;
+    }
+
+    function body(d) {
+      const q = d.q, a = d.answer;
+
+      if (q.type === 'identification') {
+        return `<div class="opt static ${d.correct ? 'correct' : 'incorrect'}">Student answer: ${a ? esc(a) : '<i>No answer</i>'}</div>
+          ${d.correct ? '' : `<div class="opt static correct">Accepted: ${(q.answers || []).map(x => esc(x)).join(' / ')}</div>`}`;
+      }
+
+      if (q.type === 'dragdrop') {
+        return (q.pairs || []).map(p => {
+          const mine = q.pairs.find(x => x.id === (a || {})[p.id]);
+          const ok = mine && Q.norm(mine.right) === Q.norm(p.right);
+          return `<div class="match">
+            <div><b>${esc(p.left)}</b></div>
+            <div>
+              <div class="slot ${ok ? 'correct' : 'incorrect'}">${mine ? esc(mine.right) : '<i>No answer</i>'}</div>
+              ${ok ? '' : `<div class="muted" style="margin-top:4px">Correct: <b>${esc(p.right)}</b></div>`}
+            </div>
+          </div>`;
+        }).join('');
+      }
+
+      const mine = q.type === 'checkbox' ? (a || []) : (a ? [a] : []);
+      return (mine.length ? '' : '<p class="muted">No answer was given.</p>') + (q.options || []).map(o => {
+        const chosen = mine.includes(o.id);
+        const cls = o.isCorrect ? 'correct' : chosen ? 'incorrect' : '';
+        const tag = chosen && o.isCorrect ? 'Student answer ✓' : chosen ? 'Student answer ✗' : o.isCorrect ? 'Correct answer' : '';
+        return `<div class="opt static ${cls}"><span style="flex:1">${esc(o.text)}</span>${tag ? `<span class="chip ${o.isCorrect ? 'ok' : 'none'}">${tag}</span>` : ''}</div>`;
+      }).join('');
+    }
+
+    function card(d) {
+      return `<div class="card stack ${d.correct ? 'rv-ok' : 'rv-bad'}">
+        <div class="row">
+          <span class="badge">Q${d.n + 1} · ${Q.types[d.q.type] || esc(d.q.type)}</span>
+          <span class="chip ${d.correct ? 'ok' : 'none'}">${d.correct ? '✓ Correct' : '✗ Incorrect'}</span>
+        </div>
+        <h3 style="margin:0">${esc(d.q.text)}</h3>
+        ${body(d)}
+      </div>`;
+    }
+
+    function render(filter) {
+      const all = att.detail.map((d, n) => ({ ...d, n }));
+      const list = filter === 'all' ? all : all.filter(d => !d.correct);
+      $('root').innerHTML = `
+        ${back}
+        <div class="card row">
+          <div>
+            <h1 style="margin:0">${esc(student ? student.name : 'Removed student')}</h1>
+            <p class="muted" style="margin:4px 0 0">
+              ${student ? '@' + esc(student.username) + ' · ' : ''}${section ? 'Section ' + esc(section.name) : 'No section'}
+            </p>
+            <p class="muted" style="margin:4px 0 0">${esc(exam.title)}${subject ? ' · ' + esc(subject.code) : ''} · ${esc(att.date)}${att.flagged !== undefined ? ' · ⚑ ' + att.flagged + ' flagged' : ''}</p>
+          </div>
+          <div style="text-align:right">
+            <div class="stat">${att.score}/${att.total}</div>
+            <div class="${att.status === 'Passed' ? 'pass' : 'fail'}">${att.percentage}% · ${att.status}</div>
+          </div>
+        </div>
+        <div class="tabs" style="margin:12px 0 0">
+          <button class="${filter === 'all' ? 'active' : ''}" onclick="render('all')">All Questions (${all.length})</button>
+          <button class="${filter === 'wrong' ? 'active' : ''}" onclick="render('wrong')">Incorrect Only (${all.filter(d => !d.correct).length})</button>
+        </div>
+        ${list.map(card).join('') || '<div class="card"><p class="pass" style="margin:0">Every question was answered correctly.</p></div>'}`;
+    }
+
+    const allowed = att && exam && subject && (
+      user.role === 'admin' || subject.facultyIds.includes(user.id)
+    );
+
+    if (!att || !exam) blocked('This attempt could not be found.');
+    else if (!allowed) blocked('You can only view attempts for subjects you teach.');
+    else if (!att.detail) blocked('This attempt was taken before answers were saved.');
+    else render('all');
+  </script>
+</body>
+</html>

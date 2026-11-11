@@ -31,3 +31,16 @@ Important:
 This starter intentionally does not expose create/update/delete endpoints. Do not
 host it publicly or use it for real student data until authentication and access
 checks are added to the backend.
+
+
+--- Sections and exam attempts are real tables (PHP backend) ---
+api.php stores sections and attempts in their own Supabase tables:
+  portal_sections, portal_section_students (one section per student),
+  portal_attempts, portal_attempt_answers (one row per answered question).
+The tables are created automatically on first use (or run
+database/sections_attempts_migration.sql in the SQL Editor), and any sections
+or attempts still stored inside portal_state are copied over once.
+Faculty: Students tab and Attempts / Grade Reports tabs filter by section;
+"View Answers" opens attempt.html.
+Note: server.js (Node) still keeps everything in the portal_state snapshot, so
+use the PHP backend to get the new tables.
