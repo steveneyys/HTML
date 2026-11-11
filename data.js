@@ -167,7 +167,13 @@ const DEFAULT_DB = {
   attempts: [],
 
   // Additional attempts granted by a faculty member.
-  retakes: []
+  retakes: [],
+
+  // Groups of students. Each section is
+  // { id, name, adviserId (faculty user id or null), studentIds: [] }.
+  // Membership lives here (like subject.studentIds) rather than on the user
+  // record, because the server keeps the users list under its own control.
+  sections: []
 };
 
 /* ==========================================================
@@ -176,6 +182,13 @@ const DEFAULT_DB = {
 
 function migrate(db) {
   db.retakes = db.retakes || [];
+
+  // Older saved data has no sections yet.
+  db.sections = db.sections || [];
+  db.sections.forEach(section => {
+    section.studentIds = section.studentIds || [];
+    if (section.adviserId === undefined) section.adviserId = null;
+  });
 
   db.subjects.forEach(subject => {
     if (!subject.facultyIds) {
@@ -390,6 +403,44 @@ const Attempts = {
       Attempts.allowed(db, sid, exam) -
       Attempts.used(db, sid, exam.id)
     )
+};
+
+/* ==========================================================
+   5b. SECTIONS
+
+   A student belongs to at most one section. Assigning a student
+   moves them out of any section they were in before.
+   ========================================================== */
+
+const Sections = {
+  // The section a student is in, or null if unassigned.
+  of: (db, studentId) =>
+    db.sections.find(section =>
+      section.studentIds.includes(studentId)
+    ) || null,
+
+  // sectionId = null (or an unknown id) leaves the student unassigned.
+  assign(db, studentId, sectionId) {
+    db.sections.forEach(section => {
+      section.studentIds = section.studentIds.filter(
+        id => id !== studentId
+      );
+    });
+
+    const target = db.sections.find(section =>
+      section.id === sectionId
+    );
+
+    if (target) target.studentIds.push(studentId);
+  },
+
+  // Students that are still real, approved student accounts.
+  count: (db, section) =>
+    section.studentIds.filter(id =>
+      db.users.some(person =>
+        person.id === id && person.role === 'student'
+      )
+    ).length
 };
 
 /* ==========================================================

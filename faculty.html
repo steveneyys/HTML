@@ -140,6 +140,7 @@
             <tr>
               <th>Student</th>
               <th>Username</th>
+              <th>Section</th>
               <th>Attempts</th>
               <th>Best</th>
               <th>Average</th>
@@ -406,7 +407,7 @@
 
     renderNav(user, [
       ['faculty.html', 'Dashboard'],
-      ['assign.html', 'Assign Subjects']
+      ['assign.html', 'Assign Subjects & Sections']
     ]);
 
     /* ---------- Shared helpers ---------- */
@@ -935,6 +936,11 @@
           <tr>
             <td><b>${esc(student.name)}</b></td>
             <td class="muted">${esc(student.username)}</td>
+            <td>${
+              Sections.of(db, student.id)
+                ? esc(Sections.of(db, student.id).name)
+                : '<span class="muted">—</span>'
+            }</td>
             <td>${attempts.length}</td>
             <td>${best}</td>
             <td>${average !== null ? average + '%' : '—'}</td>
@@ -947,7 +953,7 @@
           </tr>
         `;
       }).join('') ||
-      '<tr><td colspan="6" class="muted">No students found.</td></tr>';
+      '<tr><td colspan="7" class="muted">No students found.</td></tr>';
     }
 
     function viewStudent(id) {

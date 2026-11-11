@@ -1,0 +1,601 @@
+diff --git a/admin.html b/admin.html
+index 0de5d22..40a8e4b 100644
+--- a/admin.html
++++ b/admin.html
+@@ -19,6 +19,10 @@
+         <div class="muted">ACTIVE COURSES</div>
+         <div id="s-courses" class="stat"></div>
+       </div>
++      <div class="card">
++        <div class="muted">SECTIONS</div>
++        <div id="s-sections" class="stat"></div>
++      </div>
+     </div>
+ 
+     <div class="tabs">
+@@ -28,6 +32,9 @@
+       <button data-tab="subjects" onclick="tab('subjects')">
+         Subjects
+       </button>
++      <button data-tab="sections" onclick="tab('sections')">
++        Sections
++      </button>
+       <button data-tab="assign" onclick="tab('assign')">
+         Faculty Assignments
+       </button>
+@@ -159,6 +166,74 @@
+       </div>
+     </section>
+ 
++    <!-- Sections: groups of students. Admins create them and place students in them. -->
++    <section id="sections" class="pane stack">
++      <div id="section-form" class="card stack hidden">
++        <h3 id="secf-title" style="margin:0"></h3>
++
++        <div class="grid">
++          <div>
++            <label for="secf-name">Section Name</label>
++            <input id="secf-name" placeholder="e.g. BSIT-3A">
++          </div>
++          <div>
++            <label for="secf-adviser">Adviser (optional)</label>
++            <select id="secf-adviser"></select>
++          </div>
++        </div>
++
++        <p id="secf-err" class="err hidden" role="alert"></p>
++
++        <div class="row">
++          <button class="btn ghost" type="button" onclick="closeSection()">
++            Cancel
++          </button>
++          <button class="btn ok" type="button" onclick="saveSection()">
++            Save Section
++          </button>
++        </div>
++      </div>
++
++      <div class="card">
++        <div class="row">
++          <h3 style="margin:0">Section List</h3>
++          <button class="btn" type="button" onclick="openSection()">
++            + Add Section
++          </button>
++        </div>
++
++        <table>
++          <thead>
++            <tr>
++              <th>Name</th>
++              <th>Adviser</th>
++              <th>Students</th>
++              <th></th>
++            </tr>
++          </thead>
++          <tbody id="sections-body"></tbody>
++        </table>
++      </div>
++
++      <div class="card">
++        <h3 style="margin-top:0">Assign Students to Sections</h3>
++        <p class="muted" style="margin-top:-8px">
++          Each student is in one section at most. The change saves as soon as you pick a section.
++        </p>
++
++        <table>
++          <thead>
++            <tr>
++              <th>Student</th>
++              <th>Username</th>
++              <th>Section</th>
++            </tr>
++          </thead>
++          <tbody id="section-students-body"></tbody>
++        </table>
++      </div>
++    </section>
++
+     <!-- Faculty assignments -->
+     <section id="assign" class="pane card">
+       <table>
+@@ -194,10 +269,11 @@
+ 
+     renderNav(user, [
+       ['admin.html', 'Control Panel'],
+-      ['assign.html', 'Assign Subjects']
++      ['assign.html', 'Assign Subjects & Sections']
+     ]);
+ 
+     let subEditing = null;
++    let secEditing = null;
+ 
+     function isApproved(person) {
+       // Existing accounts without a status field remain approved.
+@@ -210,6 +286,7 @@
+ 
+       $('s-users').textContent = approvedUsers.length;
+       $('s-courses').textContent = db.subjects.length;
++      $('s-sections').textContent = db.sections.length;
+ 
+       $('users-body').innerHTML = approvedUsers.map(person => `
+         <tr>
+@@ -254,6 +331,68 @@
+       `).join('') ||
+         '<tr><td colspan="6" class="muted">No subjects yet.</td></tr>';
+ 
++      $('sections-body').innerHTML = db.sections.map(section => {
++        const adviser = db.users.find(person =>
++          person.id === section.adviserId
++        );
++
++        return `
++          <tr>
++            <td><b>${esc(section.name)}</b></td>
++            <td>${adviser ? esc(adviser.name) : '<span class="muted">None</span>'}</td>
++            <td>${Sections.count(db, section)}</td>
++            <td>
++              <div class="actions" style="justify-content:flex-end">
++                <button
++                  class="btn sm"
++                  type="button"
++                  onclick="openSection(${Number(section.id)})"
++                >
++                  Edit
++                </button>
++                <button
++                  class="btn danger sm"
++                  type="button"
++                  onclick="delSection(${Number(section.id)})"
++                >
++                  Delete
++                </button>
++              </div>
++            </td>
++          </tr>
++        `;
++      }).join('') ||
++        '<tr><td colspan="4" class="muted">No sections yet.</td></tr>';
++
++      $('section-students-body').innerHTML = db.users
++        .filter(person => isApproved(person) && person.role === 'student')
++        .map(student => {
++          const current = Sections.of(db, student.id);
++
++          return `
++            <tr>
++              <td><b>${esc(student.name || '')}</b></td>
++              <td class="muted">${esc(student.username || '')}</td>
++              <td>
++                <select
++                  class="inline"
++                  aria-label="Section for ${esc(student.name || '')}"
++                  onchange="setSection(${Number(student.id)}, this.value)"
++                >
++                  <option value="">— Not assigned —</option>
++                  ${db.sections.map(section => `
++                    <option
++                      value="${Number(section.id)}"
++                      ${current && current.id === section.id ? 'selected' : ''}
++                    >${esc(section.name)}</option>
++                  `).join('')}
++                </select>
++              </td>
++            </tr>
++          `;
++        }).join('') ||
++        '<tr><td colspan="3" class="muted">No approved students yet.</td></tr>';
++
+       $('assign-body').innerHTML = db.subjects.map(subject => {
+         const assigned = subject.facultyIds
+           .map(id => db.users.find(person => person.id === id))
+@@ -570,6 +709,124 @@
+       draw();
+     }
+ 
++    /* ---------- Sections ---------- */
++
++    function openSection(id) {
++      secEditing = id ?? null;
++
++      const section = secEditing !== null
++        ? db.sections.find(item => item.id === secEditing)
++        : null;
++
++      $('secf-title').textContent = section
++        ? `Edit Section: ${section.name}`
++        : 'Add New Section';
++
++      $('secf-name').value = section ? section.name : '';
++
++      $('secf-adviser').innerHTML =
++        '<option value="">No adviser</option>' +
++        db.users
++          .filter(person =>
++            isApproved(person) && person.role === 'faculty'
++          )
++          .map(faculty => `
++            <option
++              value="${Number(faculty.id)}"
++              ${section && section.adviserId === faculty.id ? 'selected' : ''}
++            >${esc(faculty.name)}</option>
++          `).join('');
++
++      $('secf-err').textContent = '';
++      $('secf-err').classList.add('hidden');
++      $('section-form').classList.remove('hidden');
++      tab('sections');
++      window.scrollTo({ top: 0, behavior: 'smooth' });
++    }
++
++    function closeSection() {
++      $('section-form').classList.add('hidden');
++      secEditing = null;
++    }
++
++    function saveSection() {
++      const name = $('secf-name').value.trim();
++      const adviserId = $('secf-adviser').value
++        ? Number($('secf-adviser').value)
++        : null;
++
++      const fail = text => {
++        $('secf-err').textContent = text;
++        $('secf-err').classList.remove('hidden');
++      };
++
++      if (!name) return fail('Section name is required.');
++
++      if (db.sections.some(section =>
++        section.name.toLowerCase() === name.toLowerCase() &&
++        section.id !== secEditing
++      )) {
++        return fail('A section with that name already exists.');
++      }
++
++      if (secEditing === null) {
++        db.sections.push({
++          id: Date.now(),
++          name,
++          adviserId,
++          studentIds: []
++        });
++      } else {
++        Object.assign(
++          db.sections.find(item => item.id === secEditing),
++          { name, adviserId }
++        );
++      }
++
++      if (!DB.save(db)) {
++        return fail('Could not save the section to Supabase.');
++      }
++
++      closeSection();
++      draw();
++    }
++
++    function delSection(id) {
++      const section = db.sections.find(item => item.id === id);
++
++      if (!section) return;
++
++      const count = Sections.count(db, section);
++
++      const confirmed = confirm(
++        `Delete section ${section.name}?` +
++        (count
++          ? `\n\n${count} student(s) in it will become unassigned.`
++          : '')
++      );
++
++      if (!confirmed) return;
++
++      db.sections = db.sections.filter(item => item.id !== id);
++
++      if (!DB.save(db)) {
++        alert('Could not save changes to Supabase.');
++        return;
++      }
++
++      draw();
++    }
++
++    function setSection(studentId, value) {
++      Sections.assign(db, studentId, value ? Number(value) : null);
++
++      if (!DB.save(db)) {
++        alert('Could not save changes to Supabase.');
++      }
++
++      draw();
++    }
++
+     function addFaculty(subjectId) {
+       const select = $(`add-fac-${subjectId}`);
+       const facultyId = Number(select?.value);
+diff --git a/assign.html b/assign.html
+index b3cd4be..2809340 100644
+--- a/assign.html
++++ b/assign.html
+@@ -2,42 +2,64 @@
+ <html lang="en">
+ <head>
+   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+-  <title>Assign Subjects | ExamPortal</title>
++  <title>Assign Subjects & Sections | ExamPortal</title>
+   <link rel="stylesheet" href="./css/style.css">
+ </head>
+ <body>
+   <!-- Shared by both admin and faculty — requireRole('admin','faculty') below controls that -->
+   <div class="wrap stack">
+     <div>
+-      <h1 style="margin-bottom:4px">Assign Subjects to Students</h1>
++      <h1 style="margin-bottom:4px">Assign Subjects & Sections</h1>
+       <p id="scope" class="muted" style="margin:0"></p>
+     </div>
+ 
+-    <div class="card stack">
+-      <div class="grid">
+-        <div><label>Student</label><select id="a-student"></select></div>
+-        <div><label>Subject</label><select id="a-subject"></select></div>
++    <div class="tabs">
++      <button data-tab="subj-tab" class="active" onclick="tab('subj-tab')">Subjects</button>
++      <button data-tab="sect-tab" onclick="tab('sect-tab')">Sections</button>
++    </div>
++
++    <section id="subj-tab" class="pane stack active">
++      <div class="card stack">
++        <div class="grid">
++          <div><label>Student</label><select id="a-student"></select></div>
++          <div><label>Subject</label><select id="a-subject"></select></div>
++        </div>
++        <div class="row">
++          <span id="a-info" class="muted"></span>
++          <button class="btn ok" onclick="assign()">Assign Subject</button>
++        </div>
+       </div>
+-      <div class="row">
+-        <span id="a-info" class="muted"></span>
+-        <button class="btn ok" onclick="assign()">Assign Subject</button>
++
++      <div class="card">
++        <h3 style="margin-top:0">Student Enrollments</h3>
++        <table>
++          <thead><tr><th>Student</th><th>Username</th><th>Subjects</th></tr></thead>
++          <tbody id="a-body"></tbody>
++        </table>
+       </div>
+-    </div>
++    </section>
+ 
+-    <div class="card">
+-      <h3 style="margin-top:0">Student Enrollments</h3>
++    <!-- A student is in at most one section, so each row is a dropdown that saves on change. -->
++    <section id="sect-tab" class="pane card">
++      <h3 style="margin-top:0">Student Sections</h3>
++      <p class="muted" style="margin-top:-8px">
++        Sections are created by an administrator. Choose a section for each student.
++      </p>
++      <p id="sect-empty" class="muted hidden">
++        No sections exist yet. Ask an administrator to create one.
++      </p>
+       <table>
+-        <thead><tr><th>Student</th><th>Username</th><th>Subjects</th></tr></thead>
+-        <tbody id="a-body"></tbody>
++        <thead><tr><th>Student</th><th>Username</th><th>Section</th></tr></thead>
++        <tbody id="sect-body"></tbody>
+       </table>
+-    </div>
++    </section>
+   </div>
+ 
+   <script src="data.js"></script>
+   <script>
+     const user = requireRole('admin', 'faculty'); // either role can open this page
+     const db = DB.load();
+-    renderNav(user, [[HOME[user.role], 'Dashboard'], ['assign.html', 'Assign Subjects']]);
++    renderNav(user, [[HOME[user.role], 'Dashboard'], ['assign.html', 'Assign Subjects & Sections']]);
+ 
+     const isAdmin = user.role === 'admin';
+ 
+@@ -47,8 +69,8 @@
+     const canEdit  = subId => subjects().some(s => s.id === subId); // can this user change this subject's enrollment?
+ 
+     $('scope').textContent = isAdmin
+-      ? 'You can assign any subject to any student.'
+-      : 'You can assign and remove students for the subjects you teach.';
++      ? 'You can assign any subject to any student, and place any student in a section.'
++      : 'You can assign and remove students for the subjects you teach, and place any student in a section.';
+ 
+     function draw() {
+       // Remember what was selected so redrawing (after an action) doesn't reset the dropdowns
+@@ -70,6 +92,28 @@
+           </div></td>
+         </tr>`;
+       }).join('') || '<tr><td colspan="3" class="muted">No students found.</td></tr>';
++
++      // Sections tab: one dropdown per student, saved as soon as it changes
++      $('sect-empty').classList.toggle('hidden', db.sections.length > 0);
++      $('sect-body').innerHTML = students().map(s => {
++        const current = Sections.of(db, s.id);
++        return `<tr>
++          <td><b>${esc(s.name)}</b></td>
++          <td class="muted">${esc(s.username)}</td>
++          <td>
++            <select class="inline" aria-label="Section for ${esc(s.name)}" onchange="setSection(${s.id}, this.value)">
++              <option value="">— Not assigned —</option>
++              ${db.sections.map(sec => `<option value="${sec.id}" ${current && current.id === sec.id ? 'selected' : ''}>${esc(sec.name)}</option>`).join('')}
++            </select>
++          </td>
++        </tr>`;
++      }).join('') || '<tr><td colspan="3" class="muted">No students found.</td></tr>';
++    }
++
++    function setSection(sid, value) {
++      Sections.assign(db, sid, value ? Number(value) : null);
++      if (!DB.save(db)) alert('Could not save changes to Supabase.');
++      draw();
+     }
+ 
+     function assign() {
+diff --git a/data.js b/data.js
+index 4e00853..89b4bcc 100644
+--- a/data.js
++++ b/data.js
+@@ -167,7 +167,13 @@ const DEFAULT_DB = {
+   attempts: [],
+ 
+   // Additional attempts granted by a faculty member.
+-  retakes: []
++  retakes: [],
++
++  // Groups of students. Each section is
++  // { id, name, adviserId (faculty user id or null), studentIds: [] }.
++  // Membership lives here (like subject.studentIds) rather than on the user
++  // record, because the server keeps the users list under its own control.
++  sections: []
+ };
+ 
+ /* ==========================================================
+@@ -177,6 +183,13 @@ const DEFAULT_DB = {
+ function migrate(db) {
+   db.retakes = db.retakes || [];
+ 
++  // Older saved data has no sections yet.
++  db.sections = db.sections || [];
++  db.sections.forEach(section => {
++    section.studentIds = section.studentIds || [];
++    if (section.adviserId === undefined) section.adviserId = null;
++  });
++
+   db.subjects.forEach(subject => {
+     if (!subject.facultyIds) {
+       subject.facultyIds = subject.facultyId != null
+@@ -392,6 +405,44 @@ const Attempts = {
+     )
+ };
+ 
++/* ==========================================================
++   5b. SECTIONS
++
++   A student belongs to at most one section. Assigning a student
++   moves them out of any section they were in before.
++   ========================================================== */
++
++const Sections = {
++  // The section a student is in, or null if unassigned.
++  of: (db, studentId) =>
++    db.sections.find(section =>
++      section.studentIds.includes(studentId)
++    ) || null,
++
++  // sectionId = null (or an unknown id) leaves the student unassigned.
++  assign(db, studentId, sectionId) {
++    db.sections.forEach(section => {
++      section.studentIds = section.studentIds.filter(
++        id => id !== studentId
++      );
++    });
++
++    const target = db.sections.find(section =>
++      section.id === sectionId
++    );
++
++    if (target) target.studentIds.push(studentId);
++  },
++
++  // Students that are still real, approved student accounts.
++  count: (db, section) =>
++    section.studentIds.filter(id =>
++      db.users.some(person =>
++        person.id === id && person.role === 'student'
++      )
++    ).length
++};
++
+ /* ==========================================================
+    6. QUESTION TYPES AND GRADING
+    ========================================================== */
+diff --git a/faculty.html b/faculty.html
+index aef08b8..e66fb4a 100644
+--- a/faculty.html
++++ b/faculty.html
+@@ -140,6 +140,7 @@
+             <tr>
+               <th>Student</th>
+               <th>Username</th>
++              <th>Section</th>
+               <th>Attempts</th>
+               <th>Best</th>
+               <th>Average</th>
+@@ -406,7 +407,7 @@
+ 
+     renderNav(user, [
+       ['faculty.html', 'Dashboard'],
+-      ['assign.html', 'Assign Subjects']
++      ['assign.html', 'Assign Subjects & Sections']
+     ]);
+ 
+     /* ---------- Shared helpers ---------- */
+@@ -935,6 +936,11 @@
+           <tr>
+             <td><b>${esc(student.name)}</b></td>
+             <td class="muted">${esc(student.username)}</td>
++            <td>${
++              Sections.of(db, student.id)
++                ? esc(Sections.of(db, student.id).name)
++                : '<span class="muted">—</span>'
++            }</td>
+             <td>${attempts.length}</td>
+             <td>${best}</td>
+             <td>${average !== null ? average + '%' : '—'}</td>
+@@ -947,7 +953,7 @@
+           </tr>
+         `;
+       }).join('') ||
+-      '<tr><td colspan="6" class="muted">No students found.</td></tr>';
++      '<tr><td colspan="7" class="muted">No students found.</td></tr>';
+     }
+ 
+     function viewStudent(id) {
+diff --git a/student.html b/student.html
+index 9aaa794..b805c12 100644
+--- a/student.html
++++ b/student.html
+@@ -15,6 +15,8 @@
+       Select a subject to view assigned assessments.
+     </p>
+ 
++    <p id="my-section" class="muted" style="margin-top:-8px"></p>
++
+     <div class="tabs">
+       <button data-tab="subjects" class="active"
+         onclick="tab('subjects')">
+@@ -105,6 +107,19 @@
+ 
+     renderNav(user);
+ 
++    /* ---------- Section ---------- */
++
++    function drawSection() {
++      const section = Sections.of(db, user.id);
++      const adviser = section &&
++        db.users.find(person => person.id === section.adviserId);
++
++      $('my-section').innerHTML = section
++        ? `Section: <b>${esc(section.name)}</b>` +
++          (adviser ? ` &middot; Adviser: ${esc(adviser.name)}` : '')
++        : 'Section: not assigned yet';
++    }
++
+     /* ---------- Question count ---------- */
+ 
+     function studentQuestionCount(exam) {
+@@ -358,6 +373,7 @@
+       '<p class="muted">No past examination records found.</p>';
+     }
+ 
++    drawSection();
+     drawSubjects();
+     drawHistory();
+   </script>

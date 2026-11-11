@@ -2,42 +2,64 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Assign Subjects | ExamPortal</title>
+  <title>Assign Subjects & Sections | ExamPortal</title>
   <link rel="stylesheet" href="./css/style.css">
 </head>
 <body>
   <!-- Shared by both admin and faculty — requireRole('admin','faculty') below controls that -->
   <div class="wrap stack">
     <div>
-      <h1 style="margin-bottom:4px">Assign Subjects to Students</h1>
+      <h1 style="margin-bottom:4px">Assign Subjects & Sections</h1>
       <p id="scope" class="muted" style="margin:0"></p>
     </div>
 
-    <div class="card stack">
-      <div class="grid">
-        <div><label>Student</label><select id="a-student"></select></div>
-        <div><label>Subject</label><select id="a-subject"></select></div>
-      </div>
-      <div class="row">
-        <span id="a-info" class="muted"></span>
-        <button class="btn ok" onclick="assign()">Assign Subject</button>
-      </div>
+    <div class="tabs">
+      <button data-tab="subj-tab" class="active" onclick="tab('subj-tab')">Subjects</button>
+      <button data-tab="sect-tab" onclick="tab('sect-tab')">Sections</button>
     </div>
 
-    <div class="card">
-      <h3 style="margin-top:0">Student Enrollments</h3>
+    <section id="subj-tab" class="pane stack active">
+      <div class="card stack">
+        <div class="grid">
+          <div><label>Student</label><select id="a-student"></select></div>
+          <div><label>Subject</label><select id="a-subject"></select></div>
+        </div>
+        <div class="row">
+          <span id="a-info" class="muted"></span>
+          <button class="btn ok" onclick="assign()">Assign Subject</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-top:0">Student Enrollments</h3>
+        <table>
+          <thead><tr><th>Student</th><th>Username</th><th>Subjects</th></tr></thead>
+          <tbody id="a-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- A student is in at most one section, so each row is a dropdown that saves on change. -->
+    <section id="sect-tab" class="pane card">
+      <h3 style="margin-top:0">Student Sections</h3>
+      <p class="muted" style="margin-top:-8px">
+        Sections are created by an administrator. Choose a section for each student.
+      </p>
+      <p id="sect-empty" class="muted hidden">
+        No sections exist yet. Ask an administrator to create one.
+      </p>
       <table>
-        <thead><tr><th>Student</th><th>Username</th><th>Subjects</th></tr></thead>
-        <tbody id="a-body"></tbody>
+        <thead><tr><th>Student</th><th>Username</th><th>Section</th></tr></thead>
+        <tbody id="sect-body"></tbody>
       </table>
-    </div>
+    </section>
   </div>
 
   <script src="data.js"></script>
   <script>
     const user = requireRole('admin', 'faculty'); // either role can open this page
     const db = DB.load();
-    renderNav(user, [[HOME[user.role], 'Dashboard'], ['assign.html', 'Assign Subjects']]);
+    renderNav(user, [[HOME[user.role], 'Dashboard'], ['assign.html', 'Assign Subjects & Sections']]);
 
     const isAdmin = user.role === 'admin';
 
@@ -47,8 +69,8 @@
     const canEdit  = subId => subjects().some(s => s.id === subId); // can this user change this subject's enrollment?
 
     $('scope').textContent = isAdmin
-      ? 'You can assign any subject to any student.'
-      : 'You can assign and remove students for the subjects you teach.';
+      ? 'You can assign any subject to any student, and place any student in a section.'
+      : 'You can assign and remove students for the subjects you teach, and place any student in a section.';
 
     function draw() {
       // Remember what was selected so redrawing (after an action) doesn't reset the dropdowns
@@ -70,6 +92,28 @@
           </div></td>
         </tr>`;
       }).join('') || '<tr><td colspan="3" class="muted">No students found.</td></tr>';
+
+      // Sections tab: one dropdown per student, saved as soon as it changes
+      $('sect-empty').classList.toggle('hidden', db.sections.length > 0);
+      $('sect-body').innerHTML = students().map(s => {
+        const current = Sections.of(db, s.id);
+        return `<tr>
+          <td><b>${esc(s.name)}</b></td>
+          <td class="muted">${esc(s.username)}</td>
+          <td>
+            <select class="inline" aria-label="Section for ${esc(s.name)}" onchange="setSection(${s.id}, this.value)">
+              <option value="">— Not assigned —</option>
+              ${db.sections.map(sec => `<option value="${sec.id}" ${current && current.id === sec.id ? 'selected' : ''}>${esc(sec.name)}</option>`).join('')}
+            </select>
+          </td>
+        </tr>`;
+      }).join('') || '<tr><td colspan="3" class="muted">No students found.</td></tr>';
+    }
+
+    function setSection(sid, value) {
+      Sections.assign(db, sid, value ? Number(value) : null);
+      if (!DB.save(db)) alert('Could not save changes to Supabase.');
+      draw();
     }
 
     function assign() {
