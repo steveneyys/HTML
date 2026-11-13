@@ -119,7 +119,10 @@ function db(): PDO
     $pdo = new PDO($dsn, $user, $password, [
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        PDO::ATTR_EMULATE_PREPARES => false,
+        // Plain queries go to the database in one round trip instead of
+        // prepare + execute + deallocate, and the connection is reused.
+        PDO::ATTR_EMULATE_PREPARES => true,
+        PDO::ATTR_PERSISTENT => true,
     ]);
 
     return $pdo;
@@ -194,30 +197,15 @@ function save_state(PDO $pdo, array $state): void
  */
 function ensure_schema(PDO $pdo): void
 {
-    static $done = false;
+    $sql = file_get_contents(
+        __DIR__ . '/database/sections_attempts_migration.sql'
+    );
 
-    if ($done) {
-        return;
+    if ($sql === false) {
+        throw new RuntimeException('Migration SQL file is missing.');
     }
 
-    $ready = $pdo->query(
-        "select to_regclass('public.portal_attempt_answers') is not null
-            and to_regclass('public.portal_section_students') is not null"
-    )->fetchColumn();
-
-    if (!in_array($ready, [true, 't', '1', 1], true)) {
-        $sql = file_get_contents(
-            __DIR__ . '/database/sections_attempts_migration.sql'
-        );
-
-        if ($sql === false) {
-            throw new RuntimeException('Migration SQL file is missing.');
-        }
-
-        $pdo->exec($sql);
-    }
-
-    $done = true;
+    $pdo->exec($sql);
 }
 
 function json_text($value): string
@@ -236,342 +224,440 @@ function id_or_null($value): ?int
 }
 
 /**
- * Write sections and their students. Sections missing from the list are
- * removed (their students become unassigned).
+ * Same content => same text, whatever order the keys arrive in.
  */
-function save_sections(PDO $pdo, array $sections): void
+function canonical($value)
 {
-    $keep = [];
-    $upsert = $pdo->prepare(
-        'insert into public.portal_sections (id, name, adviser_id)
-         values (:id, :name, :adviser)
-         on conflict (id) do update
-         set name = excluded.name, adviser_id = excluded.adviser_id'
-    );
-
-    foreach ($sections as $section) {
-        $id = id_or_null($section['id'] ?? null);
-
-        if ($id === null) {
-            continue;
-        }
-
-        $keep[$id] = true;
-        $upsert->execute([
-            ':id' => $id,
-            ':name' => (string)($section['name'] ?? ''),
-            ':adviser' => id_or_null($section['adviserId'] ?? null),
-        ]);
+    if (!is_array($value)) {
+        return $value;
     }
 
-    $existing = $pdo->query('select id from public.portal_sections')
-        ->fetchAll(PDO::FETCH_COLUMN);
-    $drop = $pdo->prepare('delete from public.portal_sections where id = :id');
+    $value = array_map('canonical', $value);
 
-    foreach ($existing as $id) {
-        if (!isset($keep[(int)$id])) {
-            $drop->execute([':id' => (int)$id]);
-        }
+    if (!array_is_list($value)) {
+        ksort($value);
     }
 
-    $pdo->exec('delete from public.portal_section_students');
-    $insert = $pdo->prepare(
-        'insert into public.portal_section_students (student_id, section_id)
-         values (:student, :section)
-         on conflict (student_id) do nothing'
-    );
+    return $value;
+}
 
-    foreach ($sections as $section) {
-        $sectionId = id_or_null($section['id'] ?? null);
+function is_missing_table(PDOException $error): bool
+{
+    return (string)$error->getCode() === '42P01';
+}
 
-        if ($sectionId === null) {
-            continue;
-        }
+/**
+ * Build the SQL that writes sections and/or attempts. Everything is sent to
+ * the database in ONE round trip (the connection is far away, so the number
+ * of trips matters more than the amount of data).
+ *
+ * $sections  null = leave sections alone.
+ * $attempts  null = leave attempts alone. Only new or changed attempts are
+ *            written.
+ * $examIds   when given, attempts of exams not in this list are deleted, but
+ *            only if the attempt is also missing from $attempts, so a browser
+ *            holding an old copy cannot erase other students' results.
+ */
+function build_table_sql(
+    PDO $pdo,
+    ?array $sections,
+    ?array $attempts,
+    array $knownHashes,
+    ?array $examIds
+): string {
+    $q = static fn (string $text): string => $pdo->quote($text);
+    $sql = '';
 
-        foreach (($section['studentIds'] ?? []) as $studentId) {
-            $studentId = id_or_null($studentId);
+    if ($sections !== null) {
+        $rows = [];
+        $members = [];
+        $seen = [];
 
-            if ($studentId !== null) {
-                $insert->execute([
-                    ':student' => $studentId,
-                    ':section' => $sectionId,
-                ]);
+        foreach ($sections as $section) {
+            $id = id_or_null($section['id'] ?? null);
+
+            if ($id === null) {
+                continue;
+            }
+
+            $rows[] = [
+                'id' => $id,
+                'name' => (string)($section['name'] ?? ''),
+                'adviser_id' => id_or_null($section['adviserId'] ?? null),
+            ];
+
+            foreach (($section['studentIds'] ?? []) as $studentId) {
+                $studentId = id_or_null($studentId);
+
+                if ($studentId !== null && !isset($seen[$studentId])) {
+                    $seen[$studentId] = true;
+                    $members[] = [
+                        'student_id' => $studentId,
+                        'section_id' => $id,
+                    ];
+                }
             }
         }
+
+        $ids = '{' . implode(',', array_column($rows, 'id')) . '}';
+
+        $sql .= 'delete from public.portal_sections
+                 where id <> all(' . $q($ids) . '::bigint[]);';
+        $sql .= 'insert into public.portal_sections (id, name, adviser_id)
+                 select id, name, adviser_id
+                 from json_to_recordset(' . $q(json_text($rows)) . ')
+                   as x(id bigint, name text, adviser_id bigint)
+                 on conflict (id) do update
+                 set name = excluded.name,
+                     adviser_id = excluded.adviser_id;';
+        $sql .= 'delete from public.portal_section_students;';
+        $sql .= 'insert into public.portal_section_students
+                   (student_id, section_id)
+                 select student_id, section_id
+                 from json_to_recordset(' . $q(json_text($members)) . ')
+                   as x(student_id bigint, section_id bigint)
+                 on conflict (student_id) do nothing;';
     }
+
+    if ($attempts !== null) {
+        $known = ['id', 'studentId', 'examId', 'score', 'total',
+                  'percentage', 'status', 'flagged', 'date', 'detail'];
+        $incoming = [];
+        $rows = [];
+        $answers = [];
+
+        foreach ($attempts as $attempt) {
+            $id = id_or_null($attempt['id'] ?? null);
+            $student = id_or_null($attempt['studentId'] ?? null);
+            $exam = id_or_null($attempt['examId'] ?? null);
+
+            if ($id === null || $student === null || $exam === null) {
+                continue;
+            }
+
+            $incoming[] = $id;
+            $hash = md5(json_text(canonical($attempt)));
+
+            if (($knownHashes[$id] ?? null) === $hash) {
+                continue;
+            }
+
+            $extra = array_diff_key($attempt, array_flip($known));
+
+            $rows[] = [
+                'id' => $id,
+                'student_id' => $student,
+                'exam_id' => $exam,
+                'score' => id_or_null($attempt['score'] ?? null),
+                'total' => id_or_null($attempt['total'] ?? null),
+                'percentage' => id_or_null($attempt['percentage'] ?? null),
+                'status' => isset($attempt['status'])
+                    ? (string)$attempt['status'] : null,
+                'flagged' => id_or_null($attempt['flagged'] ?? null),
+                'attempted_at' => isset($attempt['date'])
+                    ? (string)$attempt['date'] : null,
+                'extra' => $extra ?: new stdClass(),
+                'content_hash' => $hash,
+            ];
+
+            foreach (array_values($attempt['detail'] ?? []) as $pos => $item) {
+                $question = $item['q'] ?? [];
+                $answers[] = [
+                    'attempt_id' => $id,
+                    'position' => $pos,
+                    'question_id' => isset($question['id'])
+                        ? (string)$question['id'] : null,
+                    'question' => $question ?: new stdClass(),
+                    'answer' => $item['answer'] ?? null,
+                    'is_correct' => !empty($item['correct']),
+                ];
+            }
+        }
+
+        if ($rows) {
+            $changed = '{' . implode(',', array_column($rows, 'id')) . '}';
+
+            $sql .= 'insert into public.portal_attempts
+                       (id, student_id, exam_id, score, total, percentage,
+                        status, flagged, attempted_at, extra, content_hash,
+                        updated_at)
+                     select id, student_id, exam_id, score, total, percentage,
+                            status, flagged, attempted_at, extra,
+                            content_hash, now()
+                     from jsonb_to_recordset(' . $q(json_text($rows)) . ')
+                       as x(id bigint, student_id bigint, exam_id bigint,
+                            score int, total int, percentage int, status text,
+                            flagged int, attempted_at text, extra jsonb,
+                            content_hash text)
+                     on conflict (id) do update set
+                        student_id = excluded.student_id,
+                        exam_id = excluded.exam_id,
+                        score = excluded.score, total = excluded.total,
+                        percentage = excluded.percentage,
+                        status = excluded.status,
+                        flagged = excluded.flagged,
+                        attempted_at = excluded.attempted_at,
+                        extra = excluded.extra,
+                        content_hash = excluded.content_hash,
+                        updated_at = now();';
+            $sql .= 'delete from public.portal_attempt_answers
+                     where attempt_id = any(' . $q($changed) . '::bigint[]);';
+
+            if ($answers) {
+                $sql .= 'insert into public.portal_attempt_answers
+                           (attempt_id, position, question_id, question,
+                            answer, is_correct)
+                         select attempt_id, position, question_id, question,
+                                answer, is_correct
+                         from jsonb_to_recordset(' . $q(json_text($answers)) . ')
+                           as x(attempt_id bigint, position int,
+                                question_id text, question jsonb,
+                                answer jsonb, is_correct boolean);';
+            }
+        }
+
+        if ($examIds !== null) {
+            $sql .= 'delete from public.portal_attempts
+                     where id <> all(' . $q(
+                         '{' . implode(',', $incoming) . '}'
+                     ) . '::bigint[])
+                       and exam_id <> all(' . $q(
+                         '{' . implode(',', array_map('intval', $examIds)) . '}'
+                     ) . '::bigint[]);';
+        }
+    }
+
+    return $sql;
 }
 
-function load_sections(PDO $pdo): array
+function save_state_sql(PDO $pdo, array $state): string
 {
-    $members = [];
-
-    foreach ($pdo->query(
-        'select section_id, student_id
-         from public.portal_section_students
-         order by assigned_at, student_id'
-    ) as $row) {
-        $members[(int)$row['section_id']][] = (int)$row['student_id'];
-    }
-
-    $sections = [];
-
-    foreach ($pdo->query(
-        'select id, name, adviser_id from public.portal_sections order by id'
-    ) as $row) {
-        $sections[] = [
-            'id' => (int)$row['id'],
-            'name' => $row['name'],
-            'adviserId' => $row['adviser_id'] === null
-                ? null
-                : (int)$row['adviser_id'],
-            'studentIds' => $members[(int)$row['id']] ?? [],
-        ];
-    }
-
-    return $sections;
+    return 'insert into public.portal_state (singleton, state, updated_at)
+            values (true, ' . $pdo->quote(json_text($state)) . '::jsonb, now())
+            on conflict (singleton) do update
+            set state = excluded.state, updated_at = now();';
 }
 
 /**
- * Write attempts and their answers. Only new or changed attempts are written.
- * An attempt is deleted only when its exam no longer exists, so a browser
- * holding an old copy of the data cannot erase other students' results.
+ * Copy sections / attempts that are still stored inside the portal_state JSON
+ * into their tables, then remove them from the JSON. Does nothing once done.
+ * Call inside a transaction, after load_state(..., true).
  */
-function save_attempts(PDO $pdo, array $attempts, array $examIds): void
-{
-    $hashes = [];
-
-    foreach ($pdo->query(
-        'select id, content_hash from public.portal_attempts'
-    ) as $row) {
-        $hashes[(int)$row['id']] = $row['content_hash'];
-    }
-
-    $known = ['id', 'studentId', 'examId', 'score', 'total', 'percentage',
-              'status', 'flagged', 'date', 'detail'];
-
-    $upsert = $pdo->prepare(
-        'insert into public.portal_attempts
-            (id, student_id, exam_id, score, total, percentage, status,
-             flagged, attempted_at, extra, content_hash, updated_at)
-         values
-            (:id, :student, :exam, :score, :total, :pct, :status,
-             :flagged, :date, CAST(:extra AS jsonb), :hash, now())
-         on conflict (id) do update set
-            student_id = excluded.student_id, exam_id = excluded.exam_id,
-            score = excluded.score, total = excluded.total,
-            percentage = excluded.percentage, status = excluded.status,
-            flagged = excluded.flagged, attempted_at = excluded.attempted_at,
-            extra = excluded.extra, content_hash = excluded.content_hash,
-            updated_at = now()'
-    );
-    $clear = $pdo->prepare(
-        'delete from public.portal_attempt_answers where attempt_id = :id'
-    );
-    $answer = $pdo->prepare(
-        'insert into public.portal_attempt_answers
-            (attempt_id, position, question_id, question, answer, is_correct)
-         values
-            (:attempt, :pos, :qid, CAST(:question AS jsonb),
-             CAST(:answer AS jsonb), :ok)'
-    );
-
-    $incoming = [];
-
-    foreach ($attempts as $attempt) {
-        $id = id_or_null($attempt['id'] ?? null);
-        $student = id_or_null($attempt['studentId'] ?? null);
-        $exam = id_or_null($attempt['examId'] ?? null);
-
-        if ($id === null || $student === null || $exam === null) {
-            continue;
-        }
-
-        $incoming[$id] = true;
-        $hash = md5(json_text($attempt));
-
-        if (($hashes[$id] ?? null) === $hash) {
-            continue;
-        }
-
-        $extra = array_diff_key($attempt, array_flip($known));
-
-        $upsert->execute([
-            ':id' => $id,
-            ':student' => $student,
-            ':exam' => $exam,
-            ':score' => id_or_null($attempt['score'] ?? null),
-            ':total' => id_or_null($attempt['total'] ?? null),
-            ':pct' => id_or_null($attempt['percentage'] ?? null),
-            ':status' => isset($attempt['status'])
-                ? (string)$attempt['status'] : null,
-            ':flagged' => id_or_null($attempt['flagged'] ?? null),
-            ':date' => isset($attempt['date'])
-                ? (string)$attempt['date'] : null,
-            ':extra' => $extra ? json_text($extra) : '{}',
-            ':hash' => $hash,
-        ]);
-
-        $clear->execute([':id' => $id]);
-
-        foreach (array_values($attempt['detail'] ?? []) as $pos => $item) {
-            $question = $item['q'] ?? [];
-            $answer->execute([
-                ':attempt' => $id,
-                ':pos' => $pos,
-                ':qid' => isset($question['id'])
-                    ? (string)$question['id'] : null,
-                ':question' => json_text($question),
-                ':answer' => json_text($item['answer'] ?? null),
-                ':ok' => !empty($item['correct']) ? 'true' : 'false',
-            ]);
-        }
-    }
-
-    $examIds = array_flip(array_map('intval', $examIds));
-    $drop = $pdo->prepare(
-        'delete from public.portal_attempts where id = :id'
-    );
-
-    foreach ($pdo->query(
-        'select id, exam_id from public.portal_attempts'
-    ) as $row) {
-        if (
-            !isset($incoming[(int)$row['id']]) &&
-            !isset($examIds[(int)$row['exam_id']])
-        ) {
-            $drop->execute([':id' => (int)$row['id']]);
-        }
-    }
-}
-
-function load_attempts(PDO $pdo): array
-{
-    $details = [];
-
-    foreach ($pdo->query(
-        'select attempt_id, question, answer, is_correct
-         from public.portal_attempt_answers
-         order by attempt_id, position'
-    ) as $row) {
-        $details[(int)$row['attempt_id']][] = [
-            'q' => json_decode($row['question'], true),
-            'answer' => json_decode($row['answer'] ?? 'null', true),
-            'correct' => in_array($row['is_correct'], [true, 't', '1', 1], true),
-        ];
-    }
-
-    $attempts = [];
-
-    foreach ($pdo->query(
-        'select id, student_id, exam_id, score, total, percentage, status,
-                flagged, attempted_at, extra
-         from public.portal_attempts order by id'
-    ) as $row) {
-        $id = (int)$row['id'];
-        $extra = json_decode($row['extra'] ?? '{}', true) ?: [];
-
-        $attempt = [
-            'id' => $id,
-            'studentId' => (int)$row['student_id'],
-            'examId' => (int)$row['exam_id'],
-            'score' => $row['score'] === null ? null : (int)$row['score'],
-            'total' => $row['total'] === null ? null : (int)$row['total'],
-            'percentage' => $row['percentage'] === null
-                ? null : (int)$row['percentage'],
-            'status' => $row['status'],
-        ];
-
-        if ($row['flagged'] !== null) {
-            $attempt['flagged'] = (int)$row['flagged'];
-        }
-
-        $attempt['date'] = $row['attempted_at'];
-
-        if (isset($details[$id])) {
-            $attempt['detail'] = $details[$id];
-        }
-
-        $attempts[] = $attempt + $extra;
-    }
-
-    return $attempts;
-}
-
-/**
- * Copy sections / attempts still stored inside the portal_state JSON into
- * their tables, then remove them from the JSON. Does nothing once done.
- * Call inside a transaction.
- */
-function migrate_legacy_state(PDO $pdo, array &$state): void
+function migrate_legacy_state(PDO $pdo, array &$state): bool
 {
     $hasSections = !empty($state['sections']) && is_array($state['sections']);
     $hasAttempts = !empty($state['attempts']) && is_array($state['attempts']);
 
     if (!$hasSections && !$hasAttempts) {
-        unset($state['sections'], $state['attempts']);
-        return;
+        return false;
     }
 
-    if ($hasSections && !$pdo->query(
+    $sectionsEmpty = !$pdo->query(
         'select 1 from public.portal_sections limit 1'
-    )->fetchColumn()) {
-        save_sections($pdo, $state['sections']);
+    )->fetchColumn();
+
+    $existing = [];
+
+    foreach ($pdo->query('select id from public.portal_attempts') as $row) {
+        $existing[(int)$row['id']] = true;
     }
 
-    if ($hasAttempts) {
-        $examIds = array_column($state['exams'] ?? [], 'id');
-        $existing = [];
+    $newAttempts = array_values(array_filter(
+        $state['attempts'] ?? [],
+        static fn ($a) => !isset($existing[(int)($a['id'] ?? 0)])
+    ));
 
-        foreach ($pdo->query('select id from public.portal_attempts')
-            as $row) {
-            $existing[(int)$row['id']] = true;
-        }
-
-        $new = array_values(array_filter(
-            $state['attempts'],
-            static fn ($a) => !isset($existing[(int)($a['id'] ?? 0)])
-        ));
-
-        // Rows already in the table are kept untouched.
-        save_attempts($pdo, $new, array_merge(
-            $examIds,
-            array_column($pdo->query(
-                'select distinct exam_id from public.portal_attempts'
-            )->fetchAll(), 'exam_id')
-        ));
-    }
+    $sql = build_table_sql(
+        $pdo,
+        $hasSections && $sectionsEmpty ? $state['sections'] : null,
+        $newAttempts,
+        [],
+        null
+    );
 
     unset($state['sections'], $state['attempts']);
-    save_state($pdo, $state);
+    $pdo->exec($sql . save_state_sql($pdo, $state));
+
+    return true;
 }
+
+const FULL_STATE_SQL = <<<'SQL'
+select
+  (select state::text from public.portal_state where singleton = true)
+    as state,
+  (select coalesce(json_agg(json_build_object(
+      'id', s.id, 'name', s.name, 'adviserId', s.adviser_id,
+      'studentIds', coalesce((
+        select json_agg(m.student_id order by m.assigned_at, m.student_id)
+        from public.portal_section_students m
+        where m.section_id = s.id), '[]'::json)
+    ) order by s.id), '[]'::json)
+   from public.portal_sections s)::text as sections,
+  (select coalesce(json_agg(
+      t.extra
+      || jsonb_strip_nulls(jsonb_build_object(
+           'id', t.id, 'studentId', t.student_id, 'examId', t.exam_id,
+           'score', t.score, 'total', t.total, 'percentage', t.percentage,
+           'status', t.status, 'flagged', t.flagged,
+           'date', t.attempted_at))
+      || coalesce((
+           select jsonb_build_object('detail', jsonb_agg(
+                    jsonb_build_object('q', a.question, 'answer', a.answer,
+                                       'correct', a.is_correct)
+                    order by a.position))
+           from public.portal_attempt_answers a
+           where a.attempt_id = t.id
+           having count(*) > 0), '{}'::jsonb)
+    order by t.id), '[]'::json)
+   from public.portal_attempts t)::text as attempts
+SQL;
 
 /**
  * The full portal data the browser expects: the JSON snapshot plus the
- * sections and attempts read from their tables.
+ * sections and attempts read from their tables. One database round trip in
+ * the normal case.
  */
 function load_full_state(PDO $pdo): ?array
 {
-    $pdo->beginTransaction();
+    for ($pass = 0; $pass < 3; $pass++) {
+        try {
+            $row = $pdo->query(FULL_STATE_SQL)->fetch();
+        } catch (PDOException $error) {
+            if (!is_missing_table($error) || $pass > 0) {
+                throw $error;
+            }
 
-    try {
-        ensure_schema($pdo);
-        $state = load_state($pdo, true);
-
-        if ($state !== null) {
-            migrate_legacy_state($pdo, $state);
-            $state['sections'] = load_sections($pdo);
-            $state['attempts'] = load_attempts($pdo);
+            ensure_schema($pdo);
+            continue;
         }
 
-        $pdo->commit();
+        if (!$row || $row['state'] === null) {
+            return null;
+        }
+
+        $state = json_decode($row['state'], true);
+
+        if (!is_array($state)) {
+            return null;
+        }
+
+        if (!empty($state['attempts']) || !empty($state['sections'])) {
+            // Old data still sits in the snapshot: move it once, then reload.
+            $pdo->beginTransaction();
+
+            try {
+                $locked = load_state($pdo, true);
+
+                if (is_array($locked)) {
+                    migrate_legacy_state($pdo, $locked);
+                }
+
+                $pdo->commit();
+            } catch (Throwable $error) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+
+                throw $error;
+            }
+
+            continue;
+        }
+
+        $state['sections'] = json_decode($row['sections'], true) ?: [];
+        $state['attempts'] = json_decode($row['attempts'], true) ?: [];
 
         return $state;
-    } catch (Throwable $error) {
-        if ($pdo->inTransaction()) {
-            $pdo->rollBack();
-        }
+    }
 
-        throw $error;
+    throw new RuntimeException('Could not load portal data.');
+}
+
+/**
+ * Save what the browser sent: 4 round trips (begin, read, write, commit).
+ * The users list always comes from the database.
+ */
+function save_portal_state(PDO $pdo, array $incoming): void
+{
+    for ($pass = 0; $pass < 2; $pass++) {
+        $pdo->beginTransaction();
+
+        try {
+            $row = $pdo->query(
+                "select state::text as state,
+                        (select coalesce(json_object_agg(id, content_hash),
+                                         '{}'::json)
+                         from public.portal_attempts)::text as hashes
+                 from public.portal_state
+                 where singleton = true
+                 for update"
+            )->fetch();
+
+            $saved = $row ? json_decode($row['state'], true) : null;
+
+            if (!is_array($saved) || !is_array($saved['users'] ?? null)) {
+                throw new RuntimeException(
+                    'Saved portal data is unavailable.'
+                );
+            }
+
+            $hashes = [];
+
+            if (migrate_legacy_state($pdo, $saved)) {
+                foreach ($pdo->query(
+                    'select id, content_hash from public.portal_attempts'
+                ) as $r) {
+                    $hashes[(int)$r['id']] = $r['content_hash'];
+                }
+            } else {
+                foreach (json_decode($row['hashes'], true) ?: []
+                    as $id => $hash) {
+                    $hashes[(int)$id] = $hash;
+                }
+            }
+
+            $incoming['users'] = $saved['users'];
+
+            $sections = $incoming['sections'] ?? null;
+
+            if ($sections !== null && !is_array($sections)) {
+                throw new RuntimeException('Invalid sections.');
+            }
+
+            $attempts = $incoming['attempts'];
+            unset($incoming['sections'], $incoming['attempts']);
+
+            $pdo->exec(
+                build_table_sql(
+                    $pdo,
+                    $sections,
+                    $attempts,
+                    $hashes,
+                    array_column($incoming['exams'], 'id')
+                ) . save_state_sql($pdo, $incoming)
+            );
+
+            $pdo->commit();
+
+            return;
+        } catch (PDOException $error) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+
+            if (is_missing_table($error) && $pass === 0) {
+                ensure_schema($pdo);
+                continue;
+            }
+
+            throw $error;
+        } catch (Throwable $error) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+
+            throw $error;
+        }
     }
 }
 
@@ -1261,53 +1347,11 @@ try {
             }
         }
 
-        $pdo = db();
-        $pdo->beginTransaction();
-
         try {
-            $savedState = load_state($pdo, true);
-
-            if (
-                !$savedState ||
-                !isset($savedState['users']) ||
-                !is_array($savedState['users'])
-            ) {
-                throw new RuntimeException(
-                    'Saved portal data is unavailable.'
-                );
-            }
-
-            ensure_schema($pdo);
-            migrate_legacy_state($pdo, $savedState);
-
-            // Keep the database user list, including assigned roles/statuses.
-            $incomingState['users'] = $savedState['users'];
-
-            // Sections and attempts live in their own tables.
-            if (isset($incomingState['sections'])) {
-                if (!is_array($incomingState['sections'])) {
-                    throw new RuntimeException('Invalid sections.');
-                }
-
-                save_sections($pdo, $incomingState['sections']);
-            }
-
-            save_attempts(
-                $pdo,
-                $incomingState['attempts'],
-                array_column($incomingState['exams'], 'id')
-            );
-
-            unset($incomingState['sections'], $incomingState['attempts']);
-            save_state($pdo, $incomingState);
-            $pdo->commit();
+            save_portal_state(db(), $incomingState);
 
             respond(200, ['ok' => true]);
         } catch (Throwable $error) {
-            if ($pdo->inTransaction()) {
-                $pdo->rollBack();
-            }
-
             error_log(
                 'Could not save portal state: ' . $error->getMessage()
             );

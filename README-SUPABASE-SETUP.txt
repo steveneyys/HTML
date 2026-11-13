@@ -44,3 +44,10 @@ Faculty: Students tab and Attempts / Grade Reports tabs filter by section;
 "View Answers" opens attempt.html.
 Note: server.js (Node) still keeps everything in the portal_state snapshot, so
 use the PHP backend to get the new tables.
+
+--- Speed ---
+Each trip from your computer to Supabase costs a fixed delay (large when the
+database is in another continent), so api.php keeps the number of trips low:
+loading the app data is 1 database query, saving is 4, and the database
+connection is reused between requests. Pages also reuse data they loaded or
+saved in the last 10 seconds instead of asking the server again.

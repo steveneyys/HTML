@@ -156,6 +156,8 @@
                 const running = Run.get(user.id, exam.id);
                 const count = studentQuestionCount(exam);
                 const valid = ExamQuestions.valid(exam) && count > 0;
+                const schedule = Schedule.info(exam);
+                const scheduleText = Schedule.label(exam);
 
                 let action = `
                   <button class="btn" disabled>
@@ -168,6 +170,12 @@
                     <a class="btn ok" href="exam.html?id=${exam.id}">
                       Resume
                     </a>
+                  `;
+                } else if (schedule.state !== 'open') {
+                  action = `
+                    <span class="chip warn">
+                      ${schedule.state === 'closed' ? 'Closed' : 'Not open yet'}
+                    </span>
                   `;
                 } else if (!valid) {
                   action = `
@@ -194,6 +202,7 @@
                         ${count} question${count === 1 ? '' : 's'} ·
                         Attempts ${used}/${allowed}
                         ${exam.password ? ' · 🔒 Access code' : ''}
+                        ${scheduleText ? ' · ' + esc(scheduleText) : ''}
                       </div>
 
                       ${running ? `
@@ -237,6 +246,13 @@
 
       if (running) {
         location.href = `exam.html?id=${exam.id}`;
+        return;
+      }
+
+      if (Schedule.info(exam).state !== 'open') {
+        alert(Schedule.message(exam));
+        closeModal();
+        drawSubjects();
         return;
       }
 

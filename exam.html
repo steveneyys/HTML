@@ -229,6 +229,17 @@
 
     let run = Run.get(user.id, found.id);
 
+    // Respect the open / close schedule from the quiz settings. A student who
+    // already started may continue; the timer submits it when the quiz closes.
+    if (
+      Schedule.info(found).state === 'upcoming' ||
+      (Schedule.info(found).state === 'closed' && !run)
+    ) {
+      alert(Schedule.message(found));
+      location.href = 'student.html';
+      throw new Error('exam not open');
+    }
+
     if (!run && Attempts.left(db, user.id, found) < 1) {
       alert(
         'You have no attempts left for this exam. ' +
@@ -286,6 +297,12 @@
 
     function begin() {
       if (run || submitted) return;
+
+      if (Schedule.info(found).state !== 'open') {
+        alert(Schedule.message(found));
+        location.href = 'student.html';
+        return;
+      }
 
       let questions;
 
@@ -405,7 +422,9 @@
         $(id).classList.toggle('low', left < 60);
       });
 
-      if (left <= 0) {
+      const closesAt = Schedule.info(found).closesAt;
+
+      if (left <= 0 || (closesAt && Date.now() >= closesAt.getTime())) {
         submit(true);
       }
     }

@@ -238,6 +238,7 @@ const DB = {
       if (result.state) {
         const db = migrate(result.state);
         DB.cache(db);
+        DB.loadedAt = Date.now();
         return db;
       }
 
@@ -268,7 +269,14 @@ const DB = {
     }
 
     DB.cache(db);
+    DB.loadedAt = Date.now();
     return true;
+  },
+
+  // True when this page loaded or saved the data a moment ago, so it does
+  // not need to ask the server again.
+  fresh(seconds = 10) {
+    return Date.now() - (DB.loadedAt || 0) < seconds * 1000;
   },
 
   cache(db) {
@@ -378,6 +386,57 @@ const Run = {
 /* ==========================================================
    5. ATTEMPT LIMITS
    ========================================================== */
+
+/* ==========================================================
+   Exam open / close schedule (Quiz settings > Timing)
+   ========================================================== */
+
+const Schedule = {
+  // The faculty page saves "YYYY-MM-DDTHH:mm" (local time of the browser).
+  parse(value) {
+    if (!value) return null;
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  },
+
+  // state: 'open' | 'upcoming' (not open yet) | 'closed'
+  info(exam, now = Date.now()) {
+    const settings = exam.settings || {};
+    const opensAt = Schedule.parse(settings.opensAt);
+    const closesAt = Schedule.parse(settings.closesAt);
+
+    let state = 'open';
+    if (opensAt && now < opensAt.getTime()) state = 'upcoming';
+    else if (closesAt && now >= closesAt.getTime()) state = 'closed';
+
+    return { state, opensAt, closesAt };
+  },
+
+  format: date => date.toLocaleString([], {
+    dateStyle: 'medium',
+    timeStyle: 'short'
+  }),
+
+  // Short text for students, e.g. "Opens Nov 14, 2026, 9:00 AM".
+  label(exam) {
+    const { state, opensAt, closesAt } = Schedule.info(exam);
+
+    if (state === 'upcoming') return 'Opens ' + Schedule.format(opensAt);
+    if (state === 'closed') return 'Closed ' + Schedule.format(closesAt);
+    if (closesAt) return 'Closes ' + Schedule.format(closesAt);
+    return '';
+  },
+
+  message(exam) {
+    const { state } = Schedule.info(exam);
+
+    return state === 'upcoming'
+      ? `This exam is not open yet. ${Schedule.label(exam)}.`
+      : state === 'closed'
+        ? `This exam is closed. ${Schedule.label(exam)}.`
+        : '';
+  }
+};
 
 const Attempts = {
   used: (db, sid, eid) =>

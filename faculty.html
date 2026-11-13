@@ -516,6 +516,9 @@
         : null;
 
     function syncDatabase() {
+      // Skip the server round trip if the data was loaded/saved just now.
+      if (DB.fresh()) return;
+
       Object.assign(db, DB.load());
     }
 
