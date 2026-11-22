@@ -17,6 +17,17 @@
 
     <p id="my-section" class="muted" style="margin-top:-8px"></p>
 
+    <div class="card" id="timeline-card">
+      <div class="row">
+        <h3 style="margin:0">Timeline</h3>
+        <label class="agree" style="margin:0">
+          <input type="checkbox" id="hide-closed" onchange="toggleClosed(this.checked)">
+          Hide closed exams
+        </label>
+      </div>
+      <div id="timeline"></div>
+    </div>
+
     <div class="tabs">
       <button data-tab="subjects" class="active"
         onclick="tab('subjects')">
@@ -136,6 +147,115 @@
       return ExamQuestions.count(exam);
     }
 
+
+    /* ---------- Hide / unhide closed exams ---------- */
+
+    const HIDE_KEY = 'hide_closed_' + user.id;
+    let hideClosed = false;
+    try { hideClosed = localStorage.getItem(HIDE_KEY) === '1'; } catch (e) {}
+    $('hide-closed').checked = hideClosed;
+
+    function toggleClosed(value) {
+      hideClosed = value;
+      try { localStorage.setItem(HIDE_KEY, value ? '1' : '0'); } catch (e) {}
+      drawTimeline();
+      drawSubjects();
+    }
+
+    /* ---------- Timeline (opens / closes) ---------- */
+
+    let timelineAll = false;
+
+    const myExams = () => db.exams.filter(exam =>
+      db.subjects.some(subject =>
+        subject.id === exam.subjectId &&
+        subject.studentIds.includes(user.id)
+      )
+    );
+
+    function drawTimeline() {
+      const now = Date.now();
+      const events = [];
+
+      myExams().forEach(exam => {
+        const { state, opensAt, closesAt } = Schedule.info(exam);
+        const subject = db.subjects.find(s => s.id === exam.subjectId);
+
+        if (state === 'closed' && hideClosed) return;
+
+        if (opensAt && opensAt.getTime() > now) {
+          events.push({ exam, subject, state, kind: 'Quiz opens', when: opensAt });
+        }
+
+        if (closesAt) {
+          events.push({
+            exam, subject, state,
+            kind: state === 'closed' ? 'Quiz closed' : 'Quiz closes',
+            when: closesAt
+          });
+        }
+      });
+
+      // Upcoming first (soonest first), then closed (most recent first).
+      events.sort((a, b) => {
+        const ac = a.state === 'closed', bc = b.state === 'closed';
+        if (ac !== bc) return ac ? 1 : -1;
+        return ac ? b.when - a.when : a.when - b.when;
+      });
+
+      if (!events.length) {
+        $('timeline').innerHTML =
+          '<p class="muted">No exam schedules to show.</p>';
+        return;
+      }
+
+      const shown = timelineAll ? events : events.slice(0, 6);
+      let lastDay = '';
+
+      $('timeline').innerHTML = shown.map(ev => {
+        const day = ev.when.toLocaleDateString([], {
+          weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+        });
+        const time = ev.when.toLocaleTimeString([], {
+          hour: '2-digit', minute: '2-digit', hour12: false
+        });
+
+        const head = day !== lastDay
+          ? `<div style="font-weight:700;margin:14px 0 4px">${esc(day)}</div>`
+          : '';
+        lastDay = day;
+
+        const left = Attempts.left(db, user.id, ev.exam);
+        let action;
+
+        if (ev.state === 'closed') {
+          action = '<span class="chip">Closed</span>';
+        } else if (ev.state === 'upcoming') {
+          action = '<span class="chip warn">Not open yet</span>';
+        } else if (left > 0) {
+          action = `<button class="btn sm" onclick="confirmStart(${ev.exam.id})">Attempt quiz now</button>`;
+        } else {
+          action = '<span class="chip">No attempts left</span>';
+        }
+
+        return `${head}
+          <div class="row" style="padding:8px 0;border-top:1px solid #e5e7eb;gap:12px">
+            <span class="muted" style="min-width:48px">${time}</span>
+            <div style="flex:1">
+              <b>${esc(ev.exam.title)}</b>
+              <div class="muted">
+                ${ev.kind} &middot; ${esc(ev.subject.code)} &mdash; ${esc(ev.subject.name)}
+              </div>
+            </div>
+            ${action}
+          </div>`;
+      }).join('') + (events.length > 6 ? `
+        <button class="btn ghost sm" style="margin-top:12px"
+          onclick="timelineAll=!timelineAll;drawTimeline()">
+          ${timelineAll ? 'Show fewer activities' : 'Show more activities'}
+        </button>` : '');
+    }
+
     /* ---------- My Subjects ---------- */
 
     function drawSubjects() {
@@ -149,6 +269,7 @@
 
             ${db.exams
               .filter(exam => exam.subjectId === subject.id)
+              .filter(exam => !(hideClosed && Schedule.info(exam).state === 'closed'))
               .map(exam => {
                 const used = Attempts.used(db, user.id, exam.id);
                 const allowed = Attempts.allowed(db, user.id, exam);
@@ -390,6 +511,7 @@
     }
 
     drawSection();
+    drawTimeline();
     drawSubjects();
     drawHistory();
   </script>
