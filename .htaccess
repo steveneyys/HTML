@@ -1,0 +1,8 @@
+# Apache hosting: homepage + custom 404 page, and keep private files private.
+DirectoryIndex index.html
+ErrorDocument 404 /404.html
+Options -Indexes
+
+<FilesMatch "^\.|\.(sql|env|md|txt|json|crt|pem|key|log|ts|tsx|lock|patch)$">
+  Require all denied
+</FilesMatch>

@@ -49,3 +49,23 @@ LIMITS
   Do not expose it publicly or use it with real student records without adding
   authentication, authorization, CSRF protection, and audit logging.
 - Do not start the old Node server when testing the PHP version.
+
+----------------------------------------------------------------
+Homepage and public pages
+----------------------------------------------------------------
+index.html     Homepage (the site root, "/")
+about.html     About Us
+contact.html   Contact Us
+privacy.html   Privacy Notice
+404.html       Custom "page not found" page
+login.html     Sign-in page (it used to be index.html)
+
+Edit the text in these files directly (contact details are in contact.html
+and the footer of each page). css/site.css holds the styling.
+
+router.php now sends unknown URLs to 404.html with a real 404 status, and it
+refuses to serve private files (.env, .sql, package.json, database/, etc.).
+
+Open from another device on the same Wi-Fi:
+  php -S 0.0.0.0:8000 router.php
+then visit  http://<your-computer-IP>:8000  (use http://, not https://).

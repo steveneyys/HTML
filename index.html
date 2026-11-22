@@ -3,115 +3,88 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Sign In | Mateo University</title>
+  <title>Mateo University | Institutional Exam Portal</title>
+  <meta name="description" content="Take, manage and review examinations online with the Mateo University Institutional Exam Portal.">
   <link rel="icon" href="Logo.png">
-  <link rel="stylesheet" href="./css/style.css">
+  <script>document.documentElement.className += ' js';</script>
+  <link rel="stylesheet" href="css/site.css">
 </head>
 <body>
-  <main class="center card stack">
-    <div style="text-align:center">
-      <span class="logo-img lg">
-        <img src="Logo.png" alt="Mateo University">
-      </span>
-      <h2>Institutional Exam Portal</h2>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header">
+  <div class="container">
+    <a class="brand" href="index.html"><img src="Logo.png" alt="" width="34" height="34"><span>Mateo University</span></a>
+    <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="nav-links">Menu</button>
+    <nav class="nav-links" id="nav-links" aria-label="Main">
+      <a href="index.html" aria-current="page">Home</a>
+      <a href="about.html">About Us</a>
+      <a href="contact.html">Contact Us</a>
+      <a href="privacy.html">Privacy Notice</a>
+      <a class="btn" href="login.html">Sign In</a>
+    </nav>
+  </div>
+</header>
+<main id="main">
+
+<section class="hero">
+  <div class="container">
+    <p class="eyebrow rise">Mateo University</p>
+    <h1 class="rise">Institutional Exam Portal</h1>
+    <p class="lead rise">Take, manage and review exams online. Simple, secure and ready on any device.</p>
+    <div class="btn-row rise">
+      <a class="btn" href="login.html">Sign In</a>
+      <a class="btn ghost" href="register.html">Create an Account</a>
     </div>
+    <div class="meta rise"><span>Timed exams</span><span>Instant results</span><span>Secure access</span></div>
+  </div>
+</section>
 
-    <form id="login-form">
-      <label for="username">Username</label>
-      <input
-        id="username"
-        name="username"
-        autocomplete="username"
-        required
-        placeholder="Enter your username"
-      >
+<section class="block reveal">
+  <div class="container">
+    <h2>What you can do</h2>
+    <p class="sub">The essentials for running exams, in one place.</p>
+    <div class="cols">
+      <div class="item"><span class="n">01</span><h3>Take exams</h3><p>Answer timed exams with single choice, multiple answer, identification and drag &amp; drop questions.</p></div>
+      <div class="item"><span class="n">02</span><h3>See results</h3><p>Get your score right after submitting and review your answers when your instructor allows it.</p></div>
+      <div class="item"><span class="n">03</span><h3>Manage courses</h3><p>Faculty and administrators set up subjects, sections and exams, and track every attempt.</p></div>
+    </div>
+  </div>
+</section>
 
-      <label for="password">Password</label>
-      <input
-        id="password"
-        name="password"
-        type="password"
-        autocomplete="current-password"
-        required
-        placeholder="Enter your password"
-      >
+<section class="block reveal">
+  <div class="container">
+    <h2>How it works</h2>
+    <p class="sub">Three steps to your first exam.</p>
+    <div class="cols">
+      <div class="item"><span class="n">Step 1</span><h3>Register</h3><p>Create an account. An administrator approves it and assigns your role.</p></div>
+      <div class="item"><span class="n">Step 2</span><h3>Sign in</h3><p>Open your dashboard to find your subjects and assigned exams.</p></div>
+      <div class="item"><span class="n">Step 3</span><h3>Take the exam</h3><p>Finish before it closes, then see your result.</p></div>
+    </div>
+  </div>
+</section>
 
-      <p id="message" class="err hidden" role="alert" aria-live="polite"></p>
+<section class="block reveal">
+  <div class="container">
+    <div class="cta">
+      <h2>Ready to get started?</h2>
+      <p>Sign in with your Mateo University account, or register if you are new.</p>
+      <div class="btn-row"><a class="btn" href="login.html">Sign In</a><a class="btn ghost" href="contact.html">Contact Us</a></div>
+    </div>
+  </div>
+</section>
 
-      <button
-        id="login-button"
-        type="submit"
-        class="btn"
-        style="width:100%;margin-top:16px"
-      >
-        Sign In
-      </button>
-    </form>
-
-    <p style="text-align:center;margin:0">
-      Don’t have an account?
-      <a href="register.html">Register here</a>
-    </p>
-  </main>
-
-  <script src="data.js"></script>
-  <script>
-    const form = document.getElementById('login-form');
-    const message = document.getElementById('message');
-    const button = document.getElementById('login-button');
-
-    form.addEventListener('submit', async event => {
-      event.preventDefault();
-
-      message.textContent = '';
-      message.classList.add('hidden');
-      button.disabled = true;
-      button.textContent = 'Signing in…';
-
-      const username = document.getElementById('username').value.trim();
-      const password = document.getElementById('password').value;
-
-      try {
-        const response = await fetch('/api/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'same-origin',
-          body: JSON.stringify({ username, password })
-        });
-
-        const result = await response.json().catch(() => ({}));
-
-        if (!response.ok) {
-          if (result.code === 'PENDING_APPROVAL') {
-            throw new Error(
-              'Your registration is waiting for admin approval. Please try again after your account is approved.'
-            );
-          }
-
-          throw new Error(result.message || 'Could not sign in.');
-        }
-
-        const user = result.user;
-
-        if (!user || !user.role) {
-          throw new Error('The server returned an invalid account.');
-        }
-
-        if (!HOME[user.role]) {
-          throw new Error('Your account does not have a valid role.');
-        }
-
-        Session.set(user);
-        window.location.href = HOME[user.role];
-      } catch (error) {
-        message.textContent =
-          error.message ||
-          'Could not connect to the login service. Check that PHP and Supabase are available.';
-        message.classList.remove('hidden');
-        button.disabled = false;
-        button.textContent = 'Sign In';
-      }
-    });
-  </script>
+</main>
+<footer class="site-footer">
+  <div class="container">
+    <span>&copy; <span id="year">2026</span> Mateo University</span>
+    <nav aria-label="Footer">
+      <a href="about.html">About Us</a>
+      <a href="contact.html">Contact Us</a>
+      <a href="privacy.html">Privacy Notice</a>
+    </nav>
+    <a href="mailto:mateouniversity@mu.edu.ph">mateouniversity@mu.edu.ph</a>
+  </div>
+</footer>
+<script src="site.js"></script>
 </body>
 </html>

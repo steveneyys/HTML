@@ -687,7 +687,7 @@ function requireRole(...roles) {
   const user = Session.get();
 
   if (!user || !roles.includes(user.role)) {
-    location.href = 'index.html';
+    location.href = 'login.html';
     throw new Error('redirecting');
   }
 
@@ -704,7 +704,7 @@ async function logout() {
     console.error('Could not end the server session:', error);
   } finally {
     Session.clear();
-    window.location.href = 'index.html';
+    window.location.href = 'login.html';
   }
 }
 

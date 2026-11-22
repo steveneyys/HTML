@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign In | Mateo University</title>
+  <link rel="icon" href="Logo.png">
+  <link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+  <main class="center card stack">
+    <div style="text-align:center">
+      <span class="logo-img lg">
+        <img src="Logo.png" alt="Mateo University">
+      </span>
+      <h2>Institutional Exam Portal</h2>
+    </div>
+
+    <form id="login-form">
+      <label for="username">Username</label>
+      <input
+        id="username"
+        name="username"
+        autocomplete="username"
+        required
+        placeholder="Enter your username"
+      >
+
+      <label for="password">Password</label>
+      <input
+        id="password"
+        name="password"
+        type="password"
+        autocomplete="current-password"
+        required
+        placeholder="Enter your password"
+      >
+
+      <p id="message" class="err hidden" role="alert" aria-live="polite"></p>
+
+      <button
+        id="login-button"
+        type="submit"
+        class="btn"
+        style="width:100%;margin-top:16px"
+      >
+        Sign In
+      </button>
+    </form>
+
+    <p style="text-align:center;margin:0">
+      Don’t have an account?
+      <a href="register.html">Register here</a>
+    </p>
+    <p style="text-align:center;margin:0;font-size:14px"><a href="index.html">&larr; Back to homepage</a></p>
+  </main>
+
+  <script src="data.js"></script>
+  <script>
+    const form = document.getElementById('login-form');
+    const message = document.getElementById('message');
+    const button = document.getElementById('login-button');
+
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+
+      message.textContent = '';
+      message.classList.add('hidden');
+      button.disabled = true;
+      button.textContent = 'Signing in…';
+
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+
+      try {
+        const response = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ username, password })
+        });
+
+        const result = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          if (result.code === 'PENDING_APPROVAL') {
+            throw new Error(
+              'Your registration is waiting for admin approval. Please try again after your account is approved.'
+            );
+          }
+
+          throw new Error(result.message || 'Could not sign in.');
+        }
+
+        const user = result.user;
+
+        if (!user || !user.role) {
+          throw new Error('The server returned an invalid account.');
+        }
+
+        if (!HOME[user.role]) {
+          throw new Error('Your account does not have a valid role.');
+        }
+
+        Session.set(user);
+        window.location.href = HOME[user.role];
+      } catch (error) {
+        message.textContent =
+          error.message ||
+          'Could not connect to the login service. Check that PHP and Supabase are available.';
+        message.classList.remove('hidden');
+        button.disabled = false;
+        button.textContent = 'Sign In';
+      }
+    });
+  </script>
+</body>
+</html>

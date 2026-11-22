@@ -407,7 +407,16 @@ app.get('/api/subjects', async (_req, res) => {
   }
 });
 
-app.use(express.static(rootDir));
+app.use(express.static(rootDir, { dotfiles: 'deny', index: 'index.html' }));
+
+// Custom 404 page for anything that did not match above.
+app.use((req, res) => {
+  res.status(404);
+  if (req.path.startsWith('/api/') || !req.accepts('html')) {
+    return res.json({ message: 'Not found.' });
+  }
+  res.sendFile(path.join(rootDir, '404.html'));
+});
 
 app.listen(port, host, () => {
   console.log(`Exam Portal running at http://${host}:${port}`);
