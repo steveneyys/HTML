@@ -1389,3 +1389,91 @@ try {
         'message' => 'PHP backend or database is unavailable. Check PHP PDO_PGSQL and database settings.',
     ]);
 }
+
+/*
+ * Decline a pending registration.
+ * Removes only the pending user and their credential.
+ */
+if (
+    $method === 'POST' &&
+    preg_match(
+        '#^/api/admin/users/([^/]+)/decline$#',
+        $path,
+        $matches
+    )
+) {
+    require_admin();
+
+    $userId = rawurldecode($matches[1]);
+    $pdo = db();
+    $pdo->beginTransaction();
+
+    try {
+        $state = load_state($pdo, true);
+
+        if (
+            !$state ||
+            !isset($state['users']) ||
+            !is_array($state['users'])
+        ) {
+            throw new RuntimeException(
+                'Portal user data is unavailable.'
+            );
+        }
+
+        $pendingUserFound = false;
+
+        foreach ($state['users'] as $person) {
+            if (
+                (string)($person['id'] ?? '') === $userId &&
+                ($person['status'] ?? '') === 'pending'
+            ) {
+                $pendingUserFound = true;
+                break;
+            }
+        }
+
+        if (!$pendingUserFound) {
+            $pdo->rollBack();
+
+            respond(404, [
+                'message' => 'Pending registration not found.',
+            ]);
+        }
+
+        // Remove only the matching pending user from the portal snapshot.
+        $state['users'] = array_values(array_filter(
+            $state['users'],
+            static function (array $person) use ($userId): bool {
+                return (string)($person['id'] ?? '') !== $userId;
+            }
+        ));
+
+        // Remove the pending account's saved password hash.
+        $deleteCredential = $pdo->prepare(
+            'delete from public.portal_credentials
+             where user_id = :id'
+        );
+        $deleteCredential->execute([
+            ':id' => $userId,
+        ]);
+
+        save_state($pdo, $state);
+        $pdo->commit();
+
+        respond(200, [
+            'ok' => true,
+            'message' => 'Registration declined.',
+        ]);
+    } catch (Throwable $error) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        error_log('Decline registration failed: ' . $error->getMessage());
+
+        respond(500, [
+            'message' => 'Could not decline this registration.',
+        ]);
+    }
+}
