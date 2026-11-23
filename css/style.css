@@ -1,6 +1,15 @@
 
 /*Top to bottom: variables first, then base styles, then one section per
    part of the site (nav, cards/buttons, forms, exam screen, admin, etc). */
+:root{
+  --bg:#f8fafc; --bg-alt:#f1f5f9; --surface:#fff;
+  --ink:#0f172a; --ink-soft:#475569; --muted:#64748b;
+  --border:#e2e8f0; --border-dark:#94a3b8;
+  --radius-md:10px; --radius-lg:14px;
+  --success:#16a34a; --success-soft:#dcfce7; --success-edge:#86efac;
+  --danger:#dc2626; --danger-soft:#fee2e2;
+  --warn:#d97706; --warn-soft:#fef3c7; --warn-edge:#fcd34d; --warn-ink:#78350f;
+}
 *{box-sizing:border-box}
 body
 {
@@ -633,7 +642,7 @@ th,td
   padding: 8px 14px;
   font-weight: 800;
   background: var(--surface);
-  border: 200px solid var(--border-dark);
+  border: 2px solid var(--border-dark);
   border-radius: var(--radius-md);
   cursor: grab;
   user-select: none;

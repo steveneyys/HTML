@@ -672,6 +672,39 @@ function current_user(): ?array
         : null;
 }
 
+
+/**
+ * Password-reset requests (see database/password_resets.sql).
+ * The table is created on first use so no manual migration is needed.
+ */
+function ensure_reset_table(PDO $pdo): void
+{
+    static $done = false;
+
+    if ($done) {
+        return;
+    }
+
+    $sql = file_get_contents(
+        __DIR__ . '/database/password_resets.sql'
+    );
+
+    if ($sql === false) {
+        throw new RuntimeException('Password reset SQL is missing.');
+    }
+
+    $pdo->exec($sql);
+    $done = true;
+}
+
+/**
+ * A reset session may only change the password; nothing else.
+ */
+function reset_session_active(): bool
+{
+    return !empty($_SESSION['portal_user']['mustChangePassword']);
+}
+
 /**
  * Require a signed-in user.
  */
@@ -682,6 +715,13 @@ function require_login(): array
     if (!$user) {
         respond(401, [
             'message' => 'Please sign in again.',
+        ]);
+    }
+
+    if (!empty($user['mustChangePassword'])) {
+        respond(403, [
+            'code' => 'MUST_CHANGE_PASSWORD',
+            'message' => 'Set a new password to continue.',
         ]);
     }
 
@@ -980,13 +1020,85 @@ try {
         $username = trim((string)($input['username'] ?? ''));
         $password = (string)($input['password'] ?? '');
 
-        if ($username === '' || $password === '') {
+        if ($username === '') {
             respond(400, [
-                'message' => 'Username and password are required.',
+                'message' => 'Username is required.',
             ]);
         }
 
         $pdo = db();
+
+        /*
+         * Blank password: only allowed when an admin approved a reset.
+         * The session can then do nothing except choose a new password.
+         */
+        if ($password === '') {
+            ensure_reset_table($pdo);
+
+            $query = $pdo->prepare(
+                "select r.user_id
+                 from public.portal_password_resets r
+                 join public.portal_credentials c on c.user_id = r.user_id
+                 where c.username = :username
+                   and r.status = 'approved'
+                   and r.expires_at > now()"
+            );
+            $query->execute([':username' => $username]);
+            $approved = $query->fetch();
+
+            if (!$approved) {
+                respond(401, [
+                    'message' => 'Enter your password. If you forgot it, use "Forgot password?" and wait for an admin to approve the reset.',
+                ]);
+            }
+
+            $state = load_state($pdo);
+            $found = null;
+
+            foreach (($state['users'] ?? []) as $savedUser) {
+                if (
+                    (string)($savedUser['id'] ?? '') ===
+                    (string)$approved['user_id']
+                ) {
+                    $found = $savedUser;
+                    break;
+                }
+            }
+
+            if (
+                !$found ||
+                ($found['status'] ?? 'approved') !== 'approved' ||
+                !in_array(
+                    $found['role'] ?? '',
+                    ['admin', 'faculty', 'student'],
+                    true
+                )
+            ) {
+                respond(401, [
+                    'message' => 'Invalid username or password.',
+                ]);
+            }
+
+            session_regenerate_id(true);
+
+            $_SESSION['portal_user'] = [
+                'id' => $found['id'],
+                'name' => $found['name'] ?? '',
+                'username' => $found['username'] ?? $username,
+                'role' => $found['role'],
+                'mustChangePassword' => true,
+            ];
+
+            respond(200, [
+                'mustChangePassword' => true,
+                'user' => [
+                    'id' => $found['id'],
+                    'name' => $found['name'] ?? '',
+                    'username' => $found['username'] ?? $username,
+                    'role' => $found['role'],
+                ],
+            ]);
+        }
 
         $query = $pdo->prepare(
             'select user_id, salt, password_hash
@@ -1068,6 +1180,226 @@ try {
         respond(200, [
             'user' => $_SESSION['portal_user'],
         ]);
+    }
+
+
+    /*
+     * Forgot password: anyone can ask. The answer is always the same so
+     * the form cannot be used to discover which usernames exist.
+     */
+    if ($method === 'POST' && $path === '/api/auth/forgot-password') {
+        $input = request_json();
+        $username = trim((string)($input['username'] ?? ''));
+
+        if ($username === '') {
+            respond(400, ['message' => 'Enter your username.']);
+        }
+
+        $pdo = db();
+        ensure_reset_table($pdo);
+
+        $query = $pdo->prepare(
+            'select user_id, username from public.portal_credentials
+             where lower(username) = lower(:username)'
+        );
+        $query->execute([':username' => $username]);
+        $credential = $query->fetch();
+
+        if ($credential) {
+            $state = load_state($pdo);
+            $ok = false;
+
+            foreach (($state['users'] ?? []) as $savedUser) {
+                if (
+                    (string)($savedUser['id'] ?? '') ===
+                        (string)$credential['user_id'] &&
+                    ($savedUser['status'] ?? 'approved') === 'approved' &&
+                    in_array(
+                        $savedUser['role'] ?? '',
+                        ['admin', 'faculty', 'student'],
+                        true
+                    )
+                ) {
+                    $ok = true;
+                    break;
+                }
+            }
+
+            if ($ok) {
+                $pdo->prepare(
+                    "insert into public.portal_password_resets
+                       (user_id, username, status, requested_at)
+                     values (:id, :username, 'pending', now())
+                     on conflict (user_id) do update
+                       set status = 'pending', requested_at = now(),
+                           approved_at = null, expires_at = null"
+                )->execute([
+                    ':id' => (string)$credential['user_id'],
+                    ':username' => (string)$credential['username'],
+                ]);
+            }
+        }
+
+        respond(200, [
+            'ok' => true,
+            'message' => 'If that account exists, a reset request was sent to the administrators. Once approved, sign in with the password field left blank to choose a new password.',
+        ]);
+    }
+
+    /*
+     * Set a new password after a blank-password sign-in that an admin approved.
+     */
+    if ($method === 'POST' && $path === '/api/auth/change-password') {
+        $user = current_user();
+
+        if (!$user || empty($user['mustChangePassword'])) {
+            respond(401, ['message' => 'Please sign in again.']);
+        }
+
+        $input = request_json();
+        $newPassword = (string)($input['password'] ?? '');
+
+        if (strlen($newPassword) < 8) {
+            respond(400, [
+                'message' => 'Use at least 8 characters for the new password.',
+            ]);
+        }
+
+        $pdo = db();
+        ensure_reset_table($pdo);
+        $pdo->beginTransaction();
+
+        try {
+            $query = $pdo->prepare(
+                "select 1 from public.portal_password_resets
+                 where user_id = :id and status = 'approved'
+                   and expires_at > now() for update"
+            );
+            $query->execute([':id' => (string)$user['id']]);
+
+            if (!$query->fetch()) {
+                $pdo->rollBack();
+                $_SESSION = [];
+                respond(403, [
+                    'message' => 'This reset is no longer approved. Request a new one.',
+                ]);
+            }
+
+            $salt = bin2hex(random_bytes(16));
+            $hash = hash_pbkdf2('sha256', $newPassword, $salt, 120000, 64);
+
+            $pdo->prepare(
+                'update public.portal_credentials
+                 set salt = :salt, password_hash = :hash
+                 where user_id = :id'
+            )->execute([
+                ':salt' => $salt,
+                ':hash' => $hash,
+                ':id' => (string)$user['id'],
+            ]);
+
+            $pdo->prepare(
+                'delete from public.portal_password_resets where user_id = :id'
+            )->execute([':id' => (string)$user['id']]);
+
+            $pdo->commit();
+        } catch (Throwable $error) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+
+            error_log('Change password failed: ' . $error->getMessage());
+            respond(500, ['message' => 'Could not change the password.']);
+        }
+
+        unset($_SESSION['portal_user']['mustChangePassword']);
+
+        respond(200, ['user' => $_SESSION['portal_user']]);
+    }
+
+    /*
+     * Admin: list reset requests.
+     */
+    if ($method === 'GET' && $path === '/api/admin/password-resets') {
+        require_admin();
+
+        $pdo = db();
+        ensure_reset_table($pdo);
+
+        $rows = $pdo->query(
+            "select user_id, username, status, requested_at, approved_at,
+                    expires_at,
+                    (status = 'approved' and expires_at <= now()) as expired
+             from public.portal_password_resets
+             order by requested_at desc"
+        )->fetchAll();
+
+        $state = load_state($pdo);
+        $people = [];
+
+        foreach (($state['users'] ?? []) as $savedUser) {
+            $people[(string)($savedUser['id'] ?? '')] = $savedUser;
+        }
+
+        $out = [];
+
+        foreach ($rows as $row) {
+            $person = $people[(string)$row['user_id']] ?? [];
+            $out[] = [
+                'id' => $row['user_id'],
+                'username' => $row['username'],
+                'name' => $person['name'] ?? '',
+                'role' => $person['role'] ?? '',
+                'status' => $row['status'],
+                'requestedAt' => $row['requested_at'],
+                'expiresAt' => $row['expires_at'],
+                'expired' => (bool)$row['expired'],
+            ];
+        }
+
+        respond(200, ['requests' => $out]);
+    }
+
+    /*
+     * Admin: approve or decline a reset request.
+     */
+    if (
+        $method === 'POST' &&
+        preg_match(
+            '#^/api/admin/password-resets/([^/]+)/(approve|decline)$#',
+            $path,
+            $matches
+        )
+    ) {
+        require_admin();
+
+        $userId = rawurldecode($matches[1]);
+        $pdo = db();
+        ensure_reset_table($pdo);
+
+        if ($matches[2] === 'approve') {
+            $statement = $pdo->prepare(
+                "update public.portal_password_resets
+                 set status = 'approved', approved_at = now(),
+                     expires_at = now() + interval '24 hours'
+                 where user_id = :id"
+            );
+            $statement->execute([':id' => $userId]);
+            $message = 'Reset approved. The user can sign in with a blank password within 24 hours.';
+        } else {
+            $statement = $pdo->prepare(
+                'delete from public.portal_password_resets
+                 where user_id = :id'
+            );
+            $statement->execute([':id' => $userId]);
+            $message = 'Reset request declined.';
+        }
+
+        if ($statement->rowCount() === 0) {
+            respond(404, ['message' => 'Reset request not found.']);
+        }
+
+        respond(200, ['ok' => true, 'message' => $message]);
     }
 
     /*

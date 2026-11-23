@@ -100,16 +100,12 @@
     <div class="tabs">
       <button data-tab="courses" class="active"
         onclick="tab('courses')">
-        Courses & Exams
+        Courses
       </button>
 
       <button data-tab="students"
         onclick="closeStudent(); tab('students')">
         Students
-      </button>
-
-      <button data-tab="retakes" onclick="tab('retakes')">
-        Retakes
       </button>
 
       <button data-tab="subs" onclick="openSubmissions()">
@@ -120,20 +116,12 @@
         Attempts
       </button>
 
-      <button data-tab="settings" onclick="openSettings()">
-        Quiz Settings
-      </button>
-
-      <button data-tab="questions" onclick="openQuestions()">
-        Questions
-      </button>
-
       <button data-tab="reports" onclick="openReports()">
         Grade Reports
       </button>
     </div>
 
-    <!-- COURSES AND EXAMS -->
+    <!-- COURSES -->
     <section id="courses" class="pane grid active"></section>
 
     <!-- STUDENTS -->
@@ -212,55 +200,6 @@
     </section>
 
     <!-- RETAKES -->
-    <section id="retakes" class="pane stack">
-      <div class="card stack">
-        <h3 style="margin:0">Allow a Student to Retake an Exam</h3>
-
-        <p class="muted" style="margin:0">
-          Each click adds one extra attempt on top of the exam's normal limit.
-        </p>
-
-        <div class="grid">
-          <div>
-            <label for="rt-student">Student</label>
-            <select id="rt-student" onchange="rtInfo()"></select>
-          </div>
-
-          <div>
-            <label for="rt-exam">Exam</label>
-            <select id="rt-exam" onchange="rtInfo()"></select>
-          </div>
-        </div>
-
-        <div class="row">
-          <span id="rt-info" class="muted"></span>
-
-          <button class="btn ok" onclick="grantFromForm()">
-            Allow +1 Attempt
-          </button>
-        </div>
-      </div>
-
-      <div class="card table-scroll">
-        <h3 style="margin-top:0">Attempt Status</h3>
-
-        <table>
-          <thead>
-            <tr>
-              <th>Student</th>
-              <th>Exam</th>
-              <th>Used</th>
-              <th>Allowed</th>
-              <th>Left</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody id="rt-body"></tbody>
-        </table>
-      </div>
-    </section>
-
-    <!-- SUBMISSIONS: SUBJECT > ASSESSMENT > STUDENTS -->
     <section id="subs" class="pane card"></section>
 
     <!-- ATTEMPTS -->
@@ -316,67 +255,6 @@
     </section>
 
     <!-- QUIZ SETTINGS -->
-    <section id="settings" class="pane card">
-      <h2>Quiz Settings</h2>
-
-      <label for="settings-exam">Assessment</label>
-      <select id="settings-exam" onchange="loadSettings()"></select>
-
-      <p class="settings-note">
-        Title, time limit, passing grade, attempts, question selection,
-        question shuffle, password, and Allow review use the existing
-        exam features. Advanced settings are saved here but still need
-        integration with the student/exam pages.
-      </p>
-
-      <form id="quiz-settings-form">
-        <div id="settings-fields"></div>
-        <p id="settings-status" role="status" aria-live="polite"></p>
-
-        <div class="actions">
-          <button class="btn" type="submit">Save settings</button>
-
-          <button class="btn ghost" type="button"
-            onclick="saveSettings(true)">
-            Save and return to courses
-          </button>
-
-          <button class="btn ghost" type="button"
-            onclick="loadSettings(); tab('courses')">
-            Cancel
-          </button>
-        </div>
-      </form>
-    </section>
-
-    <!-- QUESTIONS -->
-    <section id="questions" class="pane card">
-      <h2>Quiz Questions</h2>
-
-      <label for="questions-exam">Assessment</label>
-      <select id="questions-exam" onchange="drawQuestions()"></select>
-
-      <p id="questions-summary" class="muted"></p>
-
-      <div class="actions">
-        <a id="questions-edit" class="btn">Edit questions</a>
-      </div>
-
-      <div class="table-scroll">
-        <table>
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Question</th>
-              <th>Type</th>
-              <th>Marks</th>
-            </tr>
-          </thead>
-          <tbody id="questions-list"></tbody>
-        </table>
-      </div>
-    </section>
-
     <!-- GRADE REPORTS -->
     <section id="reports" class="pane card">
       <h2>Grade Reports</h2>
@@ -577,8 +455,6 @@
       drawStudents();
       drawAttempts();
       drawSubs();
-      fillRetakeSelects();
-      drawRetakeTable();
     }
 
     function newExam() {
@@ -591,57 +467,102 @@
 
     /* ---------- Courses and exams ---------- */
 
+    let courseViewId = null;
+
+    function viewCourse(id) {
+      courseViewId = id;
+      drawCourses();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
     function drawCourses() {
-      $('courses').innerHTML = mySubjects().map(subject => `
-        <div class="card stack">
+      const subject = mySubjects().find(item => item.id === courseViewId);
+
+      if (!subject) {
+        courseViewId = null;
+
+        $('courses').innerHTML = mySubjects().map(item => {
+          const exams = db.exams.filter(exam => exam.subjectId === item.id);
+
+          return `
+            <div class="card stack">
+              <span class="badge">${esc(item.code)}</span>
+              <h3>${esc(item.name)}</h3>
+              <p class="muted">${esc(item.description || '')}</p>
+
+              <div class="muted">
+                ${exams.length} exam${exams.length === 1 ? '' : 's'} &middot;
+                ${item.studentIds.length} student${item.studentIds.length === 1 ? '' : 's'}
+              </div>
+
+              <button class="btn" onclick="viewCourse(${item.id})">
+                View Exams
+              </button>
+            </div>
+          `;
+        }).join('') ||
+        '<p class="muted">You have no assigned subjects.</p>';
+
+        return;
+      }
+
+      const exams = db.exams.filter(exam => exam.subjectId === subject.id);
+
+      $('courses').innerHTML = `
+        <div class="card stack" style="grid-column:1/-1">
+          <div class="row">
+            <button class="btn ghost" onclick="viewCourse(null)">
+              &larr; All Courses
+            </button>
+
+            <a class="btn" href="editor.html?new=1&subject=${subject.id}">
+              + Create New Exam
+            </a>
+          </div>
+
           <span class="badge">${esc(subject.code)}</span>
-          <h3>${esc(subject.name)}</h3>
+          <h2 style="margin:0">${esc(subject.name)}</h2>
 
-          ${db.exams
-            .filter(exam => exam.subjectId === subject.id)
-            .map(exam => `
-              <div class="row">
-                <div>
-                  <b>${esc(exam.title)}</b>
+          ${exams.map(exam => `
+            <div class="row">
+              <div>
+                <b>${esc(exam.title)}</b>
 
-                  <div class="muted">
-                    ${ExamQuestions.count(exam)} shown /
-                    ${exam.questions.length} in bank ·
-                    ${exam.duration} mins ·
-                    ${exam.maxAttempts}
-                    attempt${exam.maxAttempts > 1 ? 's' : ''}
-                    ${exam.shuffle ? ' · Shuffled' : ''}
-                    ${exam.password ? ' · Access code' : ''}
-                    ${exam.allowReview ? '' : ' · Review off'}
-                  </div>
-                </div>
-
-                <div class="actions">
-                  <button class="btn sm"
-                    onclick="openSettings(${exam.id})">
-                    Settings
-                  </button>
-
-                  <button class="btn ghost sm"
-                    onclick="openQuestions(${exam.id})">
-                    Questions
-                  </button>
-
-                  <a class="btn sm" href="editor.html?id=${exam.id}">
-                    Edit
-                  </a>
-
-                  <button class="btn danger sm"
-                    onclick="deleteExam(${exam.id})">
-                    Delete
-                  </button>
+                <div class="muted">
+                  ${ExamQuestions.count(exam)} shown /
+                  ${exam.questions.length} in bank ·
+                  ${exam.duration} mins ·
+                  ${exam.maxAttempts}
+                  attempt${exam.maxAttempts > 1 ? 's' : ''}
+                  ${exam.shuffle ? ' · Shuffled' : ''}
+                  ${exam.password ? ' · Access code' : ''}
+                  ${exam.allowReview ? '' : ' · Review off'}
                 </div>
               </div>
-            `).join('') ||
-            '<p class="muted">No assessments yet.</p>'}
+
+              <div class="actions">
+                <a class="btn sm" href="editor.html?id=${exam.id}&tab=settings">
+                  Settings
+                </a>
+
+                <a class="btn ghost sm" href="editor.html?id=${exam.id}&tab=questions">
+                  Questions
+                </a>
+
+                <a class="btn sm" href="editor.html?id=${exam.id}">
+                  Edit
+                </a>
+
+                <button class="btn danger sm"
+                  onclick="deleteExam(${exam.id})">
+                  Delete
+                </button>
+              </div>
+            </div>
+          `).join('') ||
+          '<p class="muted">No exams yet for this course.</p>'}
         </div>
-      `).join('') ||
-      '<p class="muted">You have no assigned subjects.</p>';
+      `;
     }
 
     function deleteExam(id) {
@@ -1205,369 +1126,7 @@
       $('students-list').classList.remove('hidden');
     }
 
-    /* ---------- Retakes ---------- */
-
-    function fillRetakeSelects() {
-      const selectedStudent = $('rt-student').value;
-      const selectedExam = $('rt-exam').value;
-
-      $('rt-student').innerHTML = myStudents().map(student => `
-        <option value="${student.id}">
-          ${esc(student.name)} (${esc(student.username)})
-        </option>
-      `).join('');
-
-      $('rt-exam').innerHTML = myExams().map(exam => `
-        <option value="${exam.id}">
-          ${esc(exam.title)} (${esc(subjectOf(exam).code)})
-        </option>
-      `).join('');
-
-      if (selectedStudent) {
-        $('rt-student').value = selectedStudent;
-      }
-
-      if (selectedExam) {
-        $('rt-exam').value = selectedExam;
-      }
-
-      rtInfo();
-    }
-
-    function rtInfo() {
-      const sid = +$('rt-student').value;
-      const eid = +$('rt-exam').value;
-      const exam = myExams().find(item => item.id === eid);
-
-      $('rt-info').textContent = sid && exam
-        ? `Used ${Attempts.used(db, sid, eid)} of ` +
-          `${Attempts.allowed(db, sid, exam)} attempts.`
-        : '';
-    }
-
-    function drawRetakeTable() {
-      const rows = [];
-
-      myExams().forEach(exam => {
-        const subject = subjectOf(exam);
-
-        myStudents().forEach(student => {
-          const used = Attempts.used(db, student.id, exam.id);
-
-          if (!subject.studentIds.includes(student.id) && !used) {
-            return;
-          }
-
-          const allowed = Attempts.allowed(db, student.id, exam);
-          const left = Attempts.left(db, student.id, exam);
-          const bonus = Attempts.bonus(db, student.id, exam.id);
-
-          rows.push(`
-            <tr>
-              <td><b>${esc(student.name)}</b></td>
-              <td>${esc(exam.title)}</td>
-              <td>${used}</td>
-              <td>${allowed}</td>
-              <td class="${left ? 'pass' : 'fail'}">${left}</td>
-
-              <td style="text-align:right">
-                <div class="actions" style="justify-content:flex-end">
-                  <button class="btn sm"
-                    onclick="grantRetake(${student.id},${exam.id},1)">
-                    +1 Attempt
-                  </button>
-
-                  ${bonus ? `
-                    <button class="btn ghost sm"
-                      onclick="grantRetake(${student.id},${exam.id},-1)">
-                      −1
-                    </button>
-                  ` : ''}
-                </div>
-              </td>
-            </tr>
-          `);
-        });
-      });
-
-      $('rt-body').innerHTML = rows.join('') ||
-        '<tr><td colspan="6" class="muted">No enrolled students yet.</td></tr>';
-    }
-
-    function grantRetake(sid, eid, delta) {
-      const exam = myExams().find(item => item.id === eid);
-      const student = myStudents().find(item => item.id === sid);
-
-      if (!exam || !student) return;
-
-      let retake = db.retakes.find(item =>
-        item.studentId === sid && item.examId === eid
-      );
-
-      if (!retake) {
-        if (delta < 0) return;
-
-        retake = {
-          studentId: sid,
-          examId: eid,
-          granted: 0
-        };
-
-        db.retakes.push(retake);
-      }
-
-      retake.granted = Math.max(0, retake.granted + delta);
-
-      DB.save(db);
-      drawRetakeTable();
-      rtInfo();
-    }
-
-    function grantFromForm() {
-      const sid = +$('rt-student').value;
-      const eid = +$('rt-exam').value;
-
-      if (!sid || !eid) {
-        return alert('Choose a student and an exam.');
-      }
-
-      grantRetake(sid, eid, 1);
-    }
-
-    /* ---------- Quiz settings definitions ---------- */
-
-    const settingGroups = [
-      ['General', [
-        ['title', 'Quiz name', 'text', ''],
-        ['description', 'Description', 'textarea', ''],
-        [
-          'displayDescription',
-          'Display description on course page',
-          'checkbox',
-          false
-        ]
-      ]],
-
-      ['Timing', [
-        [
-          'opensAt',
-          'Open quiz (blank = no opening date)',
-          'datetime-local',
-          ''
-        ],
-        [
-          'closesAt',
-          'Close quiz (blank = no closing date)',
-          'datetime-local',
-          ''
-        ],
-        ['duration', 'Time limit (minutes)', 'number', 30, 1, 10080],
-        [
-          'timeExpiry',
-          'When time expires',
-          'select',
-          'auto-submit',
-          ['auto-submit|Submit automatically']
-        ]
-      ]],
-
-      ['Grade and layout', [
-        ['gradeCategory', 'Grade category', 'text', 'Uncategorised'],
-        ['passingGrade', 'Grade to pass (%)', 'number', 60, 1, 100],
-        ['maxAttempts', 'Attempts allowed', 'number', 1, 1, 100],
-        [
-          'questionCount',
-          'Questions to show (0 = all; otherwise random and shuffled)',
-          'number',
-          0,
-          0,
-          100
-        ],
-        [
-          'questionsPerPage',
-          'Questions per page (advanced)',
-          'number',
-          1,
-          1,
-          100
-        ]
-      ]],
-
-      ['Question behaviour', [
-        ['shuffle', 'Shuffle question order', 'checkbox', false],
-        [
-          'shuffleAnswers',
-          'Shuffle choices within questions (advanced)',
-          'checkbox',
-          false
-        ],
-        [
-          'questionBehaviour',
-          'Feedback behaviour (advanced)',
-          'select',
-          'deferred',
-          [
-            'deferred|Deferred feedback',
-            'immediate|Immediate feedback'
-          ]
-        ]
-      ]],
-
-      ['Review options', [
-        ['allowReview', 'Allow review', 'checkbox', true]
-      ]],
-
-      ['Appearance (advanced)', [
-        [
-          'userPicture',
-          'Show user picture',
-          'select',
-          'none',
-          ['none|No image', 'small|Small image', 'large|Large image']
-        ],
-        ['gradeDecimals', 'Decimal places in grades', 'number', 0, 0, 5],
-        [
-          'questionDecimals',
-          'Decimal places in question marks',
-          'select',
-          'same',
-          [
-            'same|Same as overall grades',
-            '0|0', '1|1', '2|2', '3|3'
-          ]
-        ]
-      ]],
-
-      ['Extra restrictions', [
-        [
-          'password',
-          'Required exam password (blank = none)',
-          'password',
-          ''
-        ]
-      ]],
-
-      ['Overall feedback (advanced)', [
-        ['feedbackPass', 'Feedback for passing grades', 'textarea', ''],
-        [
-          'feedbackFail',
-          'Feedback for grades below the passing grade',
-          'textarea',
-          ''
-        ]
-      ]],
-
-      ['Common module settings (advanced)', [
-        [
-          'visibility',
-          'Availability',
-          'select',
-          'show',
-          ['show|Show on course page', 'hide|Hide from students']
-        ],
-        ['moduleId', 'ID number', 'text', ''],
-        [
-          'forceLanguage',
-          'Force language',
-          'select',
-          'none',
-          ['none|Do not force', 'en|English', 'fil|Filipino']
-        ],
-        [
-          'groupMode',
-          'Group mode',
-          'select',
-          'none',
-          [
-            'none|No groups',
-            'separate|Separate groups',
-            'visible|Visible groups'
-          ]
-        ],
-        ['grouping', 'Grouping', 'text', '']
-      ]],
-
-      ['Restrict access (advanced)', [
-        [
-          'restrictionMatch',
-          'Student must match',
-          'select',
-          'any',
-          ['any|Any listed group', 'all|All listed groups']
-        ],
-        [
-          'allowedGroups',
-          'Allowed groups (comma-separated; blank = no group restriction)',
-          'text',
-          ''
-        ]
-      ]],
-
-      ['Completion conditions (advanced)', [
-        [
-          'completionMode',
-          'Activity completion',
-          'select',
-          'none',
-          [
-            'none|None',
-            'manual|Students manually mark complete',
-            'passing|Require a passing grade'
-          ]
-        ],
-        ['completionReminder', 'Timeline reminder', 'datetime-local', '']
-      ]],
-
-      ['Tags and competencies (advanced)', [
-        ['tags', 'Tags (comma-separated)', 'text', ''],
-        ['competencies', 'Course competencies (comma-separated)', 'text', ''],
-        [
-          'completionAction',
-          'Upon activity completion',
-          'select',
-          'none',
-          [
-            'none|Do nothing',
-            'evidence|Attach evidence',
-            'review|Send for review',
-            'complete|Complete competency'
-          ]
-        ]
-      ]]
-    ];
-
-    const reviewPeriods = [
-      ['during', 'During the attempt'],
-      ['immediate', 'Immediately after'],
-      ['open', 'Later, while open'],
-      ['closed', 'After closing']
-    ];
-
-    const reviewItems = [
-      ['attempt', 'The attempt'],
-      ['correctness', 'Whether correct'],
-      ['maximumMarks', 'Maximum marks'],
-      ['marks', 'Marks'],
-      ['specificFeedback', 'Specific feedback'],
-      ['generalFeedback', 'General feedback'],
-      ['rightAnswer', 'Right answer'],
-      ['overallFeedback', 'Overall feedback']
-    ];
-
-    const coreSettings = new Set([
-      'title',
-      'duration',
-      'passingGrade',
-      'maxAttempts',
-      'questionCount',
-      'shuffle',
-      'allowReview',
-      'password'
-    ]);
-
     let reportPage = 1;
-
-    /* ---------- Settings form ---------- */
 
     function examSelect(id, selected, all = false) {
       const element = $(id);
@@ -1586,300 +1145,6 @@
       ) {
         element.value = wanted;
       }
-    }
-
-    function fieldMarkup(field, exam) {
-      const [key, label, type, fallback, min, limit] = field;
-
-      const max = key === 'questionCount'
-        ? exam.questions.length
-        : limit;
-
-      let value = coreSettings.has(key)
-        ? (exam[key] ?? fallback)
-        : (exam.settings?.[key] ?? fallback);
-
-      if (Array.isArray(value)) {
-        value = value.join(', ');
-      }
-
-      const id = 'setting-' + key;
-
-      if (type === 'checkbox') {
-        return `
-          <div>
-            <label class="check-label" for="${id}">
-              <input type="checkbox" id="${id}"
-                ${value ? 'checked' : ''}>
-              ${esc(label)}
-            </label>
-          </div>
-        `;
-      }
-
-      let input;
-
-      if (type === 'textarea') {
-        input = `
-          <textarea id="${id}" rows="3">${esc(value)}</textarea>
-        `;
-      } else if (type === 'select') {
-        input = `
-          <select id="${id}">
-            ${min.map(option => {
-              const [optionValue, optionLabel] = option.split('|');
-
-              return `
-                <option value="${esc(optionValue)}"
-                  ${String(value) === optionValue ? 'selected' : ''}>
-                  ${esc(optionLabel)}
-                </option>
-              `;
-            }).join('')}
-          </select>
-        `;
-      } else {
-        const constraints = type === 'number'
-          ? `required min="${min}" max="${max}" step="1"`
-          : key === 'title'
-            ? 'required maxlength="200"'
-            : '';
-
-        input = `
-          <input id="${id}" type="${type}" value="${esc(value)}"
-            ${constraints}
-            ${type === 'password' ? 'autocomplete="new-password"' : ''}>
-        `;
-      }
-
-      return `
-        <div>
-          <label for="${id}">${esc(label)}</label>
-          ${input}
-        </div>
-      `;
-    }
-
-    function openSettings(id) {
-      syncDatabase();
-      examSelect('settings-exam', id);
-      loadSettings();
-      tab('settings');
-    }
-
-    function loadSettings() {
-      const exam = myExams().find(item =>
-        item.id === +$('settings-exam').value
-      );
-
-      $('settings-status').textContent = '';
-      $('quiz-settings-form').classList.toggle('hidden', !exam);
-
-      if (!exam) {
-        $('settings-fields').innerHTML = '';
-        return;
-      }
-
-      $('settings-fields').innerHTML =
-        settingGroups.map(([title, fields], index) => `
-          <details class="settings-section" ${index === 0 ? 'open' : ''}>
-            <summary>${esc(title)}</summary>
-
-            <div class="settings-grid">
-              ${fields.map(field => fieldMarkup(field, exam)).join('')}
-            </div>
-
-            ${title === 'Review options' ? reviewMarkup(exam) : ''}
-          </details>
-        `).join('');
-    }
-
-    function reviewMarkup(exam) {
-      return `
-        <p class="muted">
-          Advanced review rules are saved here.
-          Student review integration is still required.
-        </p>
-
-        <div class="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Show</th>
-                ${reviewPeriods.map(period => `
-                  <th>${period[1]}</th>
-                `).join('')}
-              </tr>
-            </thead>
-
-            <tbody>
-              ${reviewItems.map(([key, label]) => `
-                <tr>
-                  <th>${label}</th>
-
-                  ${reviewPeriods.map(([period]) => `
-                    <td>
-                      <input
-                        type="checkbox"
-                        id="review-${period}-${key}"
-                        aria-label="${label}, ${period}"
-                        ${exam.settings?.review?.[period]?.[key]
-                          ? 'checked'
-                          : ''}
-                      >
-                    </td>
-                  `).join('')}
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-        </div>
-      `;
-    }
-
-    function saveSettings(goBack = false) {
-      const form = $('quiz-settings-form');
-
-      if (!form.reportValidity()) return;
-
-      const id = +$('settings-exam').value;
-      syncDatabase();
-
-      const exam = myExams().find(item => item.id === id);
-
-      if (!exam) {
-        return alert('This assessment is no longer available.');
-      }
-
-      const patch = {};
-      const settings = { ...exam.settings };
-
-      for (const [, fields] of settingGroups) {
-        for (const [key, , type] of fields) {
-          const element = $('setting-' + key);
-
-          let value = type === 'checkbox'
-            ? element.checked
-            : type === 'number'
-              ? Number(element.value)
-              : element.value.trim();
-
-          if (['tags', 'competencies', 'allowedGroups'].includes(key)) {
-            value = [...new Set(
-              value.split(',')
-                .map(item => item.trim())
-                .filter(Boolean)
-            )];
-          }
-
-          if (coreSettings.has(key)) {
-            patch[key] = value;
-          } else {
-            settings[key] = value;
-          }
-        }
-      }
-
-      if (!patch.title) {
-        return alert('Enter a quiz name.');
-      }
-
-      if (!ExamQuestions.valid({ ...exam, ...patch })) {
-        return alert(
-          `Questions to show must be a whole number from 0 to ` +
-          `${exam.questions.length}.`
-        );
-      }
-
-      if (
-        settings.opensAt &&
-        settings.closesAt &&
-        settings.closesAt <= settings.opensAt
-      ) {
-        return alert('Closing date must be later than opening date.');
-      }
-
-      settings.review = Object.fromEntries(
-        reviewPeriods.map(([period]) => [
-          period,
-          Object.fromEntries(
-            reviewItems.map(([key]) => [
-              key,
-              $(`review-${period}-${key}`).checked
-            ])
-          )
-        ])
-      );
-
-      const previous = structuredClone(exam);
-      Object.assign(exam, patch, { settings });
-
-      try {
-        DB.save(db);
-      } catch (error) {
-        Object.assign(exam, previous);
-
-        return alert(
-          'Settings could not be saved. Browser storage may be full.'
-        );
-      }
-
-      refreshAll();
-      examSelect('settings-exam', id);
-
-      $('settings-status').textContent =
-        'Settings saved. Advanced settings still require ' +
-        'student/exam page integration.';
-
-      if (goBack) {
-        tab('courses');
-      }
-    }
-
-    /* ---------- Questions overview ---------- */
-
-    function openQuestions(id) {
-      syncDatabase();
-      examSelect('questions-exam', id);
-      drawQuestions();
-      tab('questions');
-    }
-
-    function drawQuestions() {
-      const exam = myExams().find(item =>
-        item.id === +$('questions-exam').value
-      );
-
-      $('questions-edit').classList.toggle('hidden', !exam);
-
-      if (!exam) {
-        $('questions-summary').textContent = 'No assessments yet.';
-        $('questions-list').innerHTML = '';
-        return;
-      }
-
-      $('questions-edit').href = 'editor.html?id=' + exam.id;
-
-      const count = myAttempts().filter(attempt =>
-        attempt.examId === exam.id
-      ).length;
-
-      $('questions-summary').textContent =
-        `${exam.questions.length} questions in bank · ` +
-        `${ExamQuestions.count(exam)} shown per attempt · ` +
-        `${ExamQuestions.count(exam)} total marks (1 per question) · ` +
-        `${count} completed attempts.`;
-
-      $('questions-list').innerHTML =
-        exam.questions.map((question, index) => `
-          <tr>
-            <td>${index + 1}</td>
-            <td>${esc(question.text || 'Untitled question')}</td>
-            <td>${esc(question.type)}</td>
-            <td>1</td>
-          </tr>
-        `).join('') ||
-        '<tr><td colspan="4">No questions yet.</td></tr>';
     }
 
     /* ---------- Grade reports ---------- */
@@ -2124,11 +1389,6 @@
       refreshAll();
       drawReport();
     }
-
-    $('quiz-settings-form').onsubmit = event => {
-      event.preventDefault();
-      saveSettings();
-    };
 
     /* ---------- Initialize ---------- */
 

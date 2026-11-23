@@ -93,6 +93,9 @@ function currentUser(req) {
 function requireLogin(req, res, next) {
   const user = currentUser(req);
   if (!user) return res.status(401).json({ message: 'Please sign in again.' });
+  if (user.mustChangePassword) {
+    return res.status(403).json({ code: 'MUST_CHANGE_PASSWORD', message: 'Set a new password to continue.' });
+  }
   req.user = user;
   next();
 }
@@ -124,6 +127,16 @@ async function saveState(client, state) {
      on conflict (singleton) do update set state = excluded.state, updated_at = now()`,
     [JSON.stringify(state)]
   );
+}
+
+
+/* Password-reset requests (database/password_resets.sql); created on first use. */
+let resetTableReady = null;
+function ensureResetTable() {
+  resetTableReady ??= pool
+    .query(readFileSync(path.join(rootDir, 'database', 'password_resets.sql'), 'utf8'))
+    .catch(error => { resetTableReady = null; throw error; });
+  return resetTableReady;
 }
 
 /* ==========================================================
@@ -214,9 +227,37 @@ app.post('/api/auth/register', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
   const username = String(req.body?.username || '').trim();
   const password = String(req.body?.password || '');
-  if (!username || !password) return res.status(400).json({ message: 'Username and password are required.' });
+  if (!username) return res.status(400).json({ message: 'Username is required.' });
 
   try {
+    // Blank password: only allowed when an admin approved a reset. That
+    // session can do nothing except choose a new password.
+    if (password === '') {
+      await ensureResetTable();
+      const approved = await pool.query(
+        `select r.user_id from public.portal_password_resets r
+           join public.portal_credentials c on c.user_id = r.user_id
+          where c.username = $1 and r.status = 'approved' and r.expires_at > now()`,
+        [username]
+      );
+      if (!approved.rows[0]) {
+        return res.status(401).json({
+          message: 'Enter your password. If you forgot it, use "Forgot password?" and wait for an admin to approve the reset.'
+        });
+      }
+      const state = await loadState(pool);
+      const found = (state?.users || []).find(p => String(p.id) === String(approved.rows[0].user_id));
+      if (!found || (found.status ?? 'approved') !== 'approved' ||
+          !['admin', 'faculty', 'student'].includes(found.role)) {
+        return res.status(401).json({ message: 'Invalid username or password.' });
+      }
+      const publicUser = { id: found.id, name: found.name ?? '', username: found.username ?? username, role: found.role };
+      const sid = randomBytes(32).toString('hex');
+      sessions.set(sid, { ...publicUser, mustChangePassword: true });
+      res.setHeader('Set-Cookie', `${COOKIE}=${sid}; Path=/; HttpOnly; SameSite=Lax`);
+      return res.json({ mustChangePassword: true, user: publicUser });
+    }
+
     const credential = await pool.query(
       'select user_id, salt, password_hash from public.portal_credentials where username = $1',
       [username]
@@ -256,6 +297,135 @@ app.post('/api/auth/login', async (req, res) => {
   } catch (error) {
     console.error('Login failed:', error.message);
     res.status(503).json({ message: 'Login service is unavailable. Check the database connection.' });
+  }
+});
+
+app.post('/api/auth/forgot-password', async (req, res) => {
+  const username = String(req.body?.username || '').trim();
+  if (!username) return res.status(400).json({ message: 'Enter your username.' });
+
+  try {
+    await ensureResetTable();
+    const credential = await pool.query(
+      'select user_id, username from public.portal_credentials where lower(username) = lower($1)',
+      [username]
+    );
+    const row = credential.rows[0];
+    if (row) {
+      const state = await loadState(pool);
+      const saved = (state?.users || []).find(p => String(p.id) === String(row.user_id));
+      if (saved && (saved.status ?? 'approved') === 'approved' &&
+          ['admin', 'faculty', 'student'].includes(saved.role)) {
+        await pool.query(
+          `insert into public.portal_password_resets (user_id, username, status, requested_at)
+           values ($1, $2, 'pending', now())
+           on conflict (user_id) do update
+             set status = 'pending', requested_at = now(), approved_at = null, expires_at = null`,
+          [String(row.user_id), row.username]
+        );
+      }
+    }
+    // Same answer either way so usernames cannot be discovered.
+    res.json({
+      ok: true,
+      message: 'If that account exists, a reset request was sent to the administrators. Once approved, sign in with the password field left blank to choose a new password.'
+    });
+  } catch (error) {
+    console.error('Forgot password failed:', error.message);
+    res.status(503).json({ message: 'Could not send the request. Try again later.' });
+  }
+});
+
+app.post('/api/auth/change-password', async (req, res) => {
+  const user = currentUser(req);
+  if (!user || !user.mustChangePassword) return res.status(401).json({ message: 'Please sign in again.' });
+
+  const password = String(req.body?.password || '');
+  if (password.length < 8) {
+    return res.status(400).json({ message: 'Use at least 8 characters for the new password.' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await ensureResetTable();
+    await client.query('begin');
+    const ok = await client.query(
+      `select 1 from public.portal_password_resets
+        where user_id = $1 and status = 'approved' and expires_at > now() for update`,
+      [String(user.id)]
+    );
+    if (!ok.rows[0]) {
+      await client.query('rollback');
+      sessions.delete(readCookie(req, COOKIE));
+      return res.status(403).json({ message: 'This reset is no longer approved. Request a new one.' });
+    }
+    const { salt, hash } = hashPassword(password);
+    await client.query(
+      'update public.portal_credentials set salt = $1, password_hash = $2 where user_id = $3',
+      [salt, hash, String(user.id)]
+    );
+    await client.query('delete from public.portal_password_resets where user_id = $1', [String(user.id)]);
+    await client.query('commit');
+    delete user.mustChangePassword;
+    res.json({ user });
+  } catch (error) {
+    await client.query('rollback').catch(() => {});
+    console.error('Change password failed:', error.message);
+    res.status(500).json({ message: 'Could not change the password.' });
+  } finally {
+    client.release();
+  }
+});
+
+app.get('/api/admin/password-resets', requireAdmin, async (_req, res) => {
+  try {
+    await ensureResetTable();
+    const rows = (await pool.query(
+      `select user_id, username, status, requested_at, expires_at,
+              (status = 'approved' and expires_at <= now()) as expired
+         from public.portal_password_resets order by requested_at desc`
+    )).rows;
+    const state = await loadState(pool);
+    const people = new Map((state?.users || []).map(p => [String(p.id), p]));
+    res.json({
+      requests: rows.map(r => ({
+        id: r.user_id,
+        username: r.username,
+        name: people.get(String(r.user_id))?.name ?? '',
+        role: people.get(String(r.user_id))?.role ?? '',
+        status: r.status,
+        requestedAt: r.requested_at,
+        expiresAt: r.expires_at,
+        expired: Boolean(r.expired)
+      }))
+    });
+  } catch (error) {
+    console.error('List resets failed:', error.message);
+    res.status(500).json({ message: 'Could not load reset requests.' });
+  }
+});
+
+app.post('/api/admin/password-resets/:id/:action', requireAdmin, async (req, res) => {
+  if (!['approve', 'decline'].includes(req.params.action)) return res.status(404).json({ message: 'Not found.' });
+  try {
+    await ensureResetTable();
+    const approve = req.params.action === 'approve';
+    const result = approve
+      ? await pool.query(
+          `update public.portal_password_resets
+              set status = 'approved', approved_at = now(), expires_at = now() + interval '24 hours'
+            where user_id = $1`, [req.params.id])
+      : await pool.query('delete from public.portal_password_resets where user_id = $1', [req.params.id]);
+    if (!result.rowCount) return res.status(404).json({ message: 'Reset request not found.' });
+    res.json({
+      ok: true,
+      message: approve
+        ? 'Reset approved. The user can sign in with a blank password within 24 hours.'
+        : 'Reset request declined.'
+    });
+  } catch (error) {
+    console.error('Reset action failed:', error.message);
+    res.status(500).json({ message: 'Could not update the reset request.' });
   }
 });
 

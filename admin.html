@@ -85,8 +85,46 @@
 
       <div class="card">
         <div class="row">
+          <h3 style="margin:0">Password Reset Requests</h3>
+          <button class="btn sm" type="button" onclick="loadResets()">Refresh</button>
+        </div>
+        <p class="muted">
+          Approve a request to let the user sign in with a blank password within 24 hours and choose a new one.
+        </p>
+        <p id="reset-error" class="err hidden" role="alert"></p>
+        <table>
+          <thead>
+            <tr><th>Name</th><th>Username</th><th>Role</th><th>Requested</th><th>Status</th><th>Action</th></tr>
+          </thead>
+          <tbody id="reset-body">
+            <tr><td colspan="6" class="muted">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <div class="row">
           <h3 style="margin:0">Approved User Directory</h3>
         </div>
+
+        <div class="grid" style="margin:12px 0">
+          <div>
+            <label for="user-filter-role">Show</label>
+            <select id="user-filter-role" onchange="drawUsers()">
+              <option value="all">All users</option>
+              <option value="student">Students only</option>
+              <option value="faculty">Faculty only</option>
+              <option value="admin">Admins only</option>
+            </select>
+          </div>
+
+          <div>
+            <label for="user-filter-section">Students in section</label>
+            <select id="user-filter-section" onchange="drawUsers()"></select>
+          </div>
+        </div>
+
+        <p id="user-count" class="muted" style="margin:0 0 8px"></p>
 
         <table>
           <thead>
@@ -94,6 +132,7 @@
               <th>Name</th>
               <th>Username</th>
               <th>Role</th>
+              <th>Section</th>
             </tr>
           </thead>
           <tbody id="users-body"></tbody>
@@ -140,6 +179,14 @@
             Save Subject
           </button>
         </div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-top:0">Enroll Students in a Subject</h3>
+        <p class="muted" style="margin-top:-8px">
+          Choose a subject, then tick whole sections and/or individual students and enroll them all at once.
+        </p>
+        <div id="bulk-enroll"></div>
       </div>
 
       <div class="card">
@@ -218,19 +265,9 @@
       <div class="card">
         <h3 style="margin-top:0">Assign Students to Sections</h3>
         <p class="muted" style="margin-top:-8px">
-          Each student is in one section at most. The change saves as soon as you pick a section.
+          Tick as many students as you like (or use the top checkbox for everyone shown), pick a section, then move them all at once. Each student is in one section at most.
         </p>
-
-        <table>
-          <thead>
-            <tr>
-              <th>Student</th>
-              <th>Username</th>
-              <th>Section</th>
-            </tr>
-          </thead>
-          <tbody id="section-students-body"></tbody>
-        </table>
+        <div id="bulk-sections"></div>
       </div>
     </section>
 
@@ -263,6 +300,7 @@
   </div>
 
   <script src="data.js"></script>
+  <script src="bulk.js"></script>
   <script>
     const user = requireRole('admin');
     const db = DB.load();
@@ -281,6 +319,65 @@
         ['admin', 'faculty', 'student'].includes(person.role);
     }
 
+    // Approved users, filtered by role and (for students) by section.
+    function drawUsers() {
+      const roleSelect = $('user-filter-role');
+      const sectionSelect = $('user-filter-section');
+      const keep = sectionSelect.value || 'all';
+
+      sectionSelect.innerHTML =
+        '<option value="all">Any section</option>' +
+        db.sections.map(section =>
+          `<option value="${section.id}">${esc(section.name)}</option>`
+        ).join('') +
+        '<option value="none">No section</option>';
+
+      sectionSelect.value =
+        [...sectionSelect.options].some(option => option.value === keep)
+          ? keep : 'all';
+
+      // Picking a section means "list the students in it".
+      if (sectionSelect.value !== 'all' && roleSelect.value !== 'student') {
+        roleSelect.value = 'student';
+      }
+
+      const role = roleSelect.value;
+      const sectionValue = sectionSelect.value;
+
+      const list = db.users.filter(isApproved).filter(person => {
+        if (role !== 'all' && person.role !== role) return false;
+        if (sectionValue === 'all') return true;
+
+        const section = Sections.of(db, person.id);
+        return person.role === 'student' && (
+          sectionValue === 'none'
+            ? !section
+            : !!section && String(section.id) === sectionValue
+        );
+      });
+
+      $('user-count').textContent =
+        `${list.length} user${list.length === 1 ? '' : 's'} shown`;
+
+      $('users-body').innerHTML = list.map(person => {
+        const section = person.role === 'student'
+          ? Sections.of(db, person.id)
+          : null;
+
+        return `
+          <tr>
+            <td>${esc(person.name || '')}</td>
+            <td>${esc(person.username || '')}</td>
+            <td><span class="badge">${esc(person.role)}</span></td>
+            <td>${person.role === 'student'
+              ? (section ? esc(section.name) : '<span class="muted">None</span>')
+              : '<span class="muted">—</span>'}</td>
+          </tr>
+        `;
+      }).join('') ||
+        '<tr><td colspan="4" class="muted">No users match this filter.</td></tr>';
+    }
+
     function draw() {
       const approvedUsers = db.users.filter(isApproved);
 
@@ -288,14 +385,7 @@
       $('s-courses').textContent = db.subjects.length;
       $('s-sections').textContent = db.sections.length;
 
-      $('users-body').innerHTML = approvedUsers.map(person => `
-        <tr>
-          <td>${esc(person.name || '')}</td>
-          <td>${esc(person.username || '')}</td>
-          <td><span class="badge">${esc(person.role)}</span></td>
-        </tr>
-      `).join('') ||
-        '<tr><td colspan="3" class="muted">No approved users yet.</td></tr>';
+      drawUsers();
 
       $('subj-body').innerHTML = db.subjects.map(subject => `
         <tr>
@@ -364,34 +454,7 @@
       }).join('') ||
         '<tr><td colspan="4" class="muted">No sections yet.</td></tr>';
 
-      $('section-students-body').innerHTML = db.users
-        .filter(person => isApproved(person) && person.role === 'student')
-        .map(student => {
-          const current = Sections.of(db, student.id);
-
-          return `
-            <tr>
-              <td><b>${esc(student.name || '')}</b></td>
-              <td class="muted">${esc(student.username || '')}</td>
-              <td>
-                <select
-                  class="inline"
-                  aria-label="Section for ${esc(student.name || '')}"
-                  onchange="setSection(${Number(student.id)}, this.value)"
-                >
-                  <option value="">— Not assigned —</option>
-                  ${db.sections.map(section => `
-                    <option
-                      value="${Number(section.id)}"
-                      ${current && current.id === section.id ? 'selected' : ''}
-                    >${esc(section.name)}</option>
-                  `).join('')}
-                </select>
-              </td>
-            </tr>
-          `;
-        }).join('') ||
-        '<tr><td colspan="3" class="muted">No approved students yet.</td></tr>';
+      mountBulk();
 
       $('assign-body').innerHTML = db.subjects.map(subject => {
         const assigned = subject.facultyIds
@@ -839,6 +902,28 @@
       draw();
     }
 
+    // Bulk assignment widgets (see bulk.js). Mounted once, redrawn with the page.
+    let bulkSections = null, bulkEnroll = null;
+    function saveDb() {
+      if (!DB.save(db)) { alert('Could not save changes to Supabase.'); return false; }
+      return true;
+    }
+    function mountBulk() {
+      const students = () => db.users.filter(p => isApproved(p) && p.role === 'student');
+      if (!bulkSections) {
+        bulkSections = BulkTools.sections($('bulk-sections'), {
+          db, students, save: saveDb, onChange: () => draw()
+        });
+        bulkEnroll = BulkTools.enroll($('bulk-enroll'), {
+          db, students, subjects: () => db.subjects, canEdit: () => true,
+          save: saveDb, onChange: () => draw()
+        });
+      } else {
+        bulkSections.redraw();
+        bulkEnroll.redraw();
+      }
+    }
+
     function setSection(studentId, value) {
       Sections.assign(db, studentId, value ? Number(value) : null);
 
@@ -885,8 +970,75 @@
       draw();
     }
 
+
+    async function loadResets() {
+      const body = $('reset-body');
+      const error = $('reset-error');
+      error.classList.add('hidden');
+
+      try {
+        const response = await fetch('/api/admin/password-resets', { credentials: 'same-origin' });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.message || 'Could not load reset requests.');
+
+        const list = result.requests || [];
+        if (!list.length) {
+          body.innerHTML = '<tr><td colspan="6" class="muted">No password reset requests.</td></tr>';
+          return;
+        }
+
+        body.innerHTML = list.map(r => {
+          const status = r.status === 'pending'
+            ? 'Waiting for approval'
+            : r.expired
+              ? 'Approved (expired)'
+              : 'Approved until ' + new Date(r.expiresAt).toLocaleString();
+          const approveLabel = r.status === 'approved' ? 'Re-approve' : 'Approve';
+          return `<tr data-reset-id="${esc(String(r.id))}">
+            <td>${esc(r.name || '—')}</td>
+            <td>${esc(r.username)}</td>
+            <td>${esc(r.role || '—')}</td>
+            <td>${esc(new Date(r.requestedAt).toLocaleString())}</td>
+            <td>${esc(status)}</td>
+            <td>
+              <button class="btn sm reset-approve" type="button">${approveLabel}</button>
+              <button class="btn ghost sm reset-decline" type="button">Decline</button>
+            </td>
+          </tr>`;
+        }).join('');
+      } catch (e) {
+        error.textContent = e.message;
+        error.classList.remove('hidden');
+      }
+    }
+
+    $('reset-body').addEventListener('click', async event => {
+      const btn = event.target.closest('.reset-approve, .reset-decline');
+      if (!btn) return;
+      const row = btn.closest('tr');
+      const decline = btn.classList.contains('reset-decline');
+
+      if (decline && !confirm(`Decline the reset request for ${row.cells[1].textContent}?`)) return;
+
+      btn.disabled = true;
+      try {
+        const response = await fetch(
+          `/api/admin/password-resets/${encodeURIComponent(row.dataset.resetId)}/${decline ? 'decline' : 'approve'}`,
+          { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: '{}' }
+        );
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.message || 'Could not update the request.');
+        alert(result.message);
+        loadResets();
+      } catch (e) {
+        alert(e.message);
+        btn.disabled = false;
+      }
+    });
+
     draw();
     loadPendingRegistrations();
+    loadResets();
   </script>
 </body>
 </html>

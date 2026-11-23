@@ -32,9 +32,11 @@
         name="password"
         type="password"
         autocomplete="current-password"
-        required
         placeholder="Enter your password"
       >
+      <p class="muted" style="margin:6px 0 0;font-size:14px;text-align:right">
+        <a href="#" id="forgot-link">Forgot password?</a>
+      </p>
 
       <p id="message" class="err hidden" role="alert" aria-live="polite"></p>
 
@@ -48,7 +50,28 @@
       </button>
     </form>
 
-    <p style="text-align:center;margin:0">
+    <form id="forgot-form" class="hidden">
+      <h3 style="margin-top:0">Forgot your password?</h3>
+      <p class="muted">Enter your username. An administrator must approve the request. After approval, sign in with the password field left <strong>blank</strong> and you will be asked to choose a new password.</p>
+      <label for="forgot-username">Username</label>
+      <input id="forgot-username" autocomplete="username" required placeholder="Enter your username">
+      <p id="forgot-message" class="hidden" role="status" aria-live="polite"></p>
+      <button id="forgot-button" type="submit" class="btn" style="width:100%;margin-top:16px">Request password reset</button>
+      <p style="text-align:center;margin:12px 0 0"><a href="#" id="back-link">&larr; Back to sign in</a></p>
+    </form>
+
+    <form id="reset-form" class="hidden">
+      <h3 style="margin-top:0">Set a new password</h3>
+      <p class="muted">An administrator approved your reset. Choose a new password (at least 8 characters).</p>
+      <label for="new-password">New password</label>
+      <input id="new-password" type="password" autocomplete="new-password" minlength="8" required>
+      <label for="confirm-password">Confirm new password</label>
+      <input id="confirm-password" type="password" autocomplete="new-password" minlength="8" required>
+      <p id="reset-message" class="err hidden" role="alert"></p>
+      <button id="reset-button" type="submit" class="btn" style="width:100%;margin-top:16px">Save password and sign in</button>
+    </form>
+
+    <p id="signup-line" style="text-align:center;margin:0">
       Don’t have an account?
       <a href="register.html">Register here</a>
     </p>
@@ -94,6 +117,14 @@
 
         const user = result.user;
 
+        if (result.mustChangePassword) {
+          pendingUser = user;
+          form.classList.add('hidden');
+          document.getElementById('reset-form').classList.remove('hidden');
+          document.getElementById('new-password').focus();
+          return;
+        }
+
         if (!user || !user.role) {
           throw new Error('The server returned an invalid account.');
         }
@@ -109,8 +140,99 @@
           error.message ||
           'Could not connect to the login service. Check that PHP and Supabase are available.';
         message.classList.remove('hidden');
+      } finally {
         button.disabled = false;
         button.textContent = 'Sign In';
+      }
+    });
+
+    /* ---- Forgot password ---- */
+    let pendingUser = null;
+    const forgotForm = document.getElementById('forgot-form');
+    const forgotMsg = document.getElementById('forgot-message');
+    const resetForm = document.getElementById('reset-form');
+    const resetMsg = document.getElementById('reset-message');
+
+    document.getElementById('forgot-link').addEventListener('click', e => {
+      e.preventDefault();
+      form.classList.add('hidden');
+      forgotForm.classList.remove('hidden');
+      document.getElementById('forgot-username').value =
+        document.getElementById('username').value.trim();
+      document.getElementById('forgot-username').focus();
+    });
+
+    document.getElementById('back-link').addEventListener('click', e => {
+      e.preventDefault();
+      forgotForm.classList.add('hidden');
+      form.classList.remove('hidden');
+    });
+
+    forgotForm.addEventListener('submit', async event => {
+      event.preventDefault();
+      const btn = document.getElementById('forgot-button');
+      btn.disabled = true;
+      forgotMsg.className = 'hidden';
+
+      try {
+        const response = await fetch('/api/auth/forgot-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            username: document.getElementById('forgot-username').value.trim()
+          })
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.message || 'Could not send the request.');
+        forgotMsg.textContent = result.message;
+        forgotMsg.className = '';
+        forgotMsg.style.color = '#15803d';
+      } catch (error) {
+        forgotMsg.textContent = error.message;
+        forgotMsg.className = 'err';
+        forgotMsg.style.color = '';
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    resetForm.addEventListener('submit', async event => {
+      event.preventDefault();
+      resetMsg.classList.add('hidden');
+      const a = document.getElementById('new-password').value;
+      const b = document.getElementById('confirm-password').value;
+
+      if (a.length < 8) {
+        resetMsg.textContent = 'Use at least 8 characters.';
+        resetMsg.classList.remove('hidden');
+        return;
+      }
+      if (a !== b) {
+        resetMsg.textContent = 'The two passwords do not match.';
+        resetMsg.classList.remove('hidden');
+        return;
+      }
+
+      const btn = document.getElementById('reset-button');
+      btn.disabled = true;
+
+      try {
+        const response = await fetch('/api/auth/change-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ password: a })
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.message || 'Could not change the password.');
+        const user = result.user || pendingUser;
+        Session.set(user);
+        window.location.href = HOME[user.role];
+      } catch (error) {
+        resetMsg.textContent = error.message;
+        resetMsg.classList.remove('hidden');
+        btn.disabled = false;
       }
     });
   </script>

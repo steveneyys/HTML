@@ -399,11 +399,60 @@ const Schedule = {
     return Number.isNaN(date.getTime()) ? null : date;
   },
 
-  // state: 'open' | 'upcoming' (not open yet) | 'closed'
-  info(exam, now = Date.now()) {
+  // Who is asking: the signed-in student and their section (or null).
+  context() {
+    const user = Session.get();
+    if (!user || user.role !== 'student') return null;
+
+    const stamp = user.id + ':' + (DB.loadedAt || 0);
+    if (Schedule._ctx && Schedule._ctx.stamp === stamp) return Schedule._ctx;
+
+    let sectionId = null;
+    try {
+      const cached = DB.readCache();
+      const section = cached && (cached.sections || []).find(item =>
+        (item.studentIds || []).includes(user.id)
+      );
+      sectionId = section ? section.id : null;
+    } catch (error) { /* no cache: use the exam's normal dates */ }
+
+    Schedule._ctx = { stamp, studentId: user.id, sectionId };
+    return Schedule._ctx;
+  },
+
+  // The open/close text that applies to one student:
+  // student-specific dates > section-specific dates > the exam's own dates.
+  // A blank field in an override means "use the exam's normal date".
+  dates(exam, who) {
     const settings = exam.settings || {};
-    const opensAt = Schedule.parse(settings.opensAt);
-    const closesAt = Schedule.parse(settings.closesAt);
+    let opens = settings.opensAt || '';
+    let closes = settings.closesAt || '';
+
+    if (who) {
+      const list = settings.overrides || [];
+      const apply = item => {
+        if (!item) return;
+        if (item.opensAt) opens = item.opensAt;
+        if (item.closesAt) closes = item.closesAt;
+      };
+
+      apply(list.find(item =>
+        item.type === 'section' && who.sectionId != null &&
+        Number(item.id) === Number(who.sectionId)
+      ));
+      apply(list.find(item =>
+        item.type === 'student' && Number(item.id) === Number(who.studentId)
+      ));
+    }
+
+    return { opens, closes };
+  },
+
+  // state: 'open' | 'upcoming' (not open yet) | 'closed'
+  info(exam, now = Date.now(), who = Schedule.context()) {
+    const dates = Schedule.dates(exam, who);
+    const opensAt = Schedule.parse(dates.opens);
+    const closesAt = Schedule.parse(dates.closes);
 
     let state = 'open';
     if (opensAt && now < opensAt.getTime()) state = 'upcoming';
@@ -805,3 +854,33 @@ const ExamQuestions = {
     return questions.slice(0, this.count(exam));
   }
 };
+
+
+/* Drag-and-drop boxes: defined here so every page that shows matching
+   questions (exam, review, attempt) always draws a visible border. */
+(function () {
+  const style = document.createElement('style');
+  style.textContent = `
+    .match .slot {
+      border: 2px dashed #94a3b8;
+      border-radius: 10px;
+      padding: 10px 12px;
+      min-height: 46px;
+      box-sizing: border-box;
+      background: #f8fafc;
+      font-weight: 700;
+    }
+    .match .slot.filled { border: 2px solid #0f172a; background: #fff; color: #0f172a; }
+    .match .slot.correct { border: 2px solid #16a34a; background: #dcfce7; color: #0f172a; }
+    .match .slot.incorrect { border: 2px solid #dc2626; background: #fee2e2; color: #0f172a; }
+    .bank .tile {
+      border: 2px solid #94a3b8;
+      border-radius: 10px;
+      padding: 8px 14px;
+      background: #fff;
+      font-weight: 800;
+    }
+    .bank .tile.picked { background: #0f172a; color: #fff; border-color: #0f172a; }
+  `;
+  document.head.appendChild(style);
+})();
