@@ -277,6 +277,17 @@
         </div>
 
         <div>
+          <label for="report-sort">Sort by</label>
+          <select id="report-sort" onchange="drawReport(true)">
+            <option value="date">Newest first</option>
+            <option value="section">Section (A–Z)</option>
+            <option value="name">Student name</option>
+            <option value="high">Highest score</option>
+            <option value="low">Lowest score</option>
+          </select>
+        </div>
+
+        <div>
           <label for="report-status">Result</label>
           <select id="report-status" onchange="drawReport(true)">
             <option value="">All results</option>
@@ -519,6 +530,7 @@
               + Create New Exam
             </a>
           </div>
+          <br>
 
           <span class="badge">${esc(subject.code)}</span>
           <h2 style="margin:0">${esc(subject.name)}</h2>
@@ -993,10 +1005,38 @@
 
     /* ---------- Attempts ---------- */
 
+    // When set, the Exam Attempts tab shows only this student's attempts.
+    let attStudent = null;
+
     function openAttempts() {
       syncDatabase();
+      attStudent = null;
       drawAttempts();
       tab('attempts');
+    }
+
+    // "View attempts" button in the Results table.
+    function viewAttemptsFor(attemptId) {
+      const attempt = db.attempts.find(item => item.id === attemptId);
+      if (!attempt) return;
+
+      syncDatabase();
+      attStudent = attempt.studentId;
+
+      drawAttempts();                         // rebuilds the dropdowns
+      $('att-section').value = 'all';
+      $('att-exam').value = String(attempt.examId);
+      $('att-status').value = '';
+      $('att-search').value = '';
+
+      drawAttempts();
+      tab('attempts');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function clearAttStudent() {
+      attStudent = null;
+      drawAttempts();
     }
 
     function drawAttempts() {
@@ -1025,7 +1065,8 @@
         const text =
           `${student?.name || ''} ${student?.username || ''}`.toLowerCase();
 
-        return matchesSection(attempt.studentId, section) &&
+        return (!attStudent || attempt.studentId === attStudent) &&
+          matchesSection(attempt.studentId, section) &&
           (!examId || String(attempt.examId) === examId) &&
           (!status || attempt.status === status) &&
           (!search || text.includes(search));
@@ -1034,8 +1075,18 @@
         Number(b.id) - Number(a.id)
       );
 
-      $('att-summary').textContent =
-        `${rows.length} attempt${rows.length === 1 ? '' : 's'} shown.`;
+      const who = attStudent &&
+        db.users.find(u => u.id === attStudent);
+
+      $('att-summary').innerHTML =
+        `${rows.length} attempt${rows.length === 1 ? '' : 's'} shown` +
+        (who
+          ? ` for <b>${esc(who.name || who.username)}</b>. ` +
+            `<button class="btn ghost sm" type="button" ` +
+            `onclick="clearAttStudent()">Show all students</button>` +
+            ` <button class="btn ghost sm" type="button" ` +
+            `onclick="openReports()">&larr; Back to results</button>`
+          : '.');
 
       $('att-body').innerHTML = rows.map(attempt => {
         const student = db.users.find(u => u.id === attempt.studentId);
@@ -1178,9 +1229,46 @@
           (!status || attempt.status === status) &&
           (!search || studentText.includes(search))
         );
-      }).sort((a, b) =>
-        String(b.date).localeCompare(String(a.date))
-      );
+      }).sort(reportSorter($('report-sort').value));
+    }
+
+    // Section sort groups students by section (A–Z, unassigned last),
+    // then by student name, then newest attempt first.
+    function reportSorter(mode) {
+      const byDate = (a, b) =>
+        String(b.date).localeCompare(String(a.date)) ||
+        Number(b.id) - Number(a.id);
+
+      const nameOf = attempt =>
+        (db.users.find(u => u.id === attempt.studentId)?.name || '')
+          .toLowerCase();
+
+      const sectionOf = attempt =>
+        Sections.of(db, attempt.studentId)?.name || '';
+
+      if (mode === 'section') {
+        return (a, b) => {
+          const sa = sectionOf(a), sb = sectionOf(b);
+          if (!sa !== !sb) return sa ? -1 : 1;
+          return sa.localeCompare(sb, undefined, { numeric: true }) ||
+            nameOf(a).localeCompare(nameOf(b)) ||
+            byDate(a, b);
+        };
+      }
+
+      if (mode === 'name') {
+        return (a, b) => nameOf(a).localeCompare(nameOf(b)) || byDate(a, b);
+      }
+
+      if (mode === 'high') {
+        return (a, b) => b.percentage - a.percentage || byDate(a, b);
+      }
+
+      if (mode === 'low') {
+        return (a, b) => a.percentage - b.percentage || byDate(a, b);
+      }
+
+      return byDate;
     }
 
     function reportData(rows) {
@@ -1195,6 +1283,7 @@
       const header = [
         'Student',
         'Username',
+        'Section',
         'Assessment',
         'Score',
         'Total',
@@ -1218,6 +1307,7 @@
         return [
           student?.name || 'Unknown',
           student?.username || '',
+          Sections.of(db, attempt.studentId)?.name || '',
           exam?.title || 'Assessment',
           attempt.score,
           attempt.total,
@@ -1249,18 +1339,24 @@
       $('report-head').innerHTML =
         '<tr>' +
         header.map(item => `<th>${esc(item)}</th>`).join('') +
-        '</tr>';
+        '<th>Attempts</th></tr>';
+
+      const start = (reportPage - 1) * size;
 
       $('report-body').innerHTML =
         values
-          .slice((reportPage - 1) * size, reportPage * size)
-          .map(row =>
+          .slice(start, reportPage * size)
+          .map((row, index) =>
             '<tr>' +
             row.map(value => `<td>${esc(value)}</td>`).join('') +
+            `<td><button class="btn sm" type="button"
+               onclick="viewAttemptsFor(${rows[start + index].id})">
+               View attempts
+             </button></td>` +
             '</tr>'
           ).join('') ||
         `<tr>
-          <td colspan="${header.length}">
+          <td colspan="${header.length + 1}">
             No matching completed attempts.
           </td>
         </tr>`;

@@ -258,19 +258,22 @@
 
     /* ---------- My Subjects ---------- */
 
-    function drawSubjects() {
-      $('subjects').innerHTML = db.subjects
-        .filter(subject => subject.studentIds.includes(user.id))
-        .map(subject => `
-          <div class="card stack">
-            <span class="badge">${esc(subject.code)}</span>
-            <h3>${esc(subject.name)}</h3>
-            <p class="muted">${esc(subject.description || '')}</p>
+    // null = subject cards; a subject id = that subject's exam list.
+    let subjectViewId = null;
 
-            ${db.exams
-              .filter(exam => exam.subjectId === subject.id)
-              .filter(exam => !(hideClosed && Schedule.info(exam).state === 'closed'))
-              .map(exam => {
+    function viewSubject(id) {
+      subjectViewId = id;
+      drawSubjects();
+      window.scrollTo({ top: $('subjects').offsetTop - 80, behavior: 'smooth' });
+    }
+
+    function backToSubjects() {
+      subjectViewId = null;
+      drawSubjects();
+    }
+
+    // One exam row with its Start / Resume / status control.
+    function examRow(exam) {
                 const used = Attempts.used(db, user.id, exam.id);
                 const allowed = Attempts.allowed(db, user.id, exam);
                 const left = Attempts.left(db, user.id, exam);
@@ -337,10 +340,54 @@
                     ${action}
                   </div>
                 `;
-              }).join('') ||
-              '<p class="muted">No assessments yet.</p>'}
-          </div>
-        `).join('') ||
+    }
+
+    const visibleExams = subject => db.exams
+      .filter(exam => exam.subjectId === subject.id)
+      .filter(exam => !(hideClosed && Schedule.info(exam).state === 'closed'));
+
+    function drawSubjects() {
+      const mine = db.subjects.filter(subject => subject.studentIds.includes(user.id));
+      const box = $('subjects');
+      const current = mine.find(subject => subject.id === subjectViewId);
+
+      if (!current) subjectViewId = null;
+
+      if (current) {
+        const exams = visibleExams(current);
+        box.classList.remove('grid'); box.classList.add('stack');
+        box.innerHTML = `
+          <div class="card stack">
+            <div class="row">
+              <button class="btn ghost sm" type="button" onclick="backToSubjects()">&larr; Back to subjects</button>
+            </div>
+            <br>
+
+            <span class="badge">${esc(current.code)}</span>
+            <h3 style="margin:0">${esc(current.name)} — Exams</h3>
+            <p class="muted" style="margin:0">${esc(current.description || '')}</p>
+            ${exams.map(examRow).join('') || '<p class="muted">No exams to show.</p>'}
+          </div>`;
+        return;
+      }
+
+      box.classList.remove('stack'); box.classList.add('grid');
+      box.innerHTML = mine.map(subject => {
+        const all = db.exams.filter(exam => exam.subjectId === subject.id);
+        const open = all.filter(exam => Schedule.info(exam).state === 'open').length;
+        return `
+          <div class="card stack">
+            <span class="badge">${esc(subject.code)}</span>
+            <h3>${esc(subject.name)}</h3>
+            <p class="muted">${esc(subject.description || '')}</p>
+            <p class="muted" style="margin:0">
+              ${all.length} exam${all.length === 1 ? '' : 's'}${open ? ` · ${open} open now` : ''}
+            </p>
+            <div>
+              <button class="btn" type="button" onclick="viewSubject(${subject.id})">View exams</button>
+            </div>
+          </div>`;
+      }).join('') ||
         '<p class="muted">You are not enrolled in any subjects yet.</p>';
     }
 
