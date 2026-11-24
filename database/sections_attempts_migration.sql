@@ -13,6 +13,10 @@ create table if not exists public.portal_sections (
   created_at timestamptz not null default now()
 );
 
+-- Faculty assigned to the section (many per section). Safe to repeat.
+alter table public.portal_sections
+  add column if not exists faculty_ids bigint[] not null default '{}';
+
 create unique index if not exists portal_sections_name_key
   on public.portal_sections (lower(name));
 

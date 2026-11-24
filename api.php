@@ -243,7 +243,8 @@ function canonical($value)
 
 function is_missing_table(PDOException $error): bool
 {
-    return (string)$error->getCode() === '42P01';
+    // 42P01 = missing table, 42703 = missing column (faculty_ids added later).
+    return in_array((string)$error->getCode(), ['42P01', '42703'], true);
 }
 
 /**
@@ -284,6 +285,10 @@ function build_table_sql(
                 'id' => $id,
                 'name' => (string)($section['name'] ?? ''),
                 'adviser_id' => id_or_null($section['adviserId'] ?? null),
+                'faculty_ids' => array_values(array_unique(array_filter(
+                    array_map('id_or_null', (array)($section['facultyIds'] ?? [])),
+                    fn($value) => $value !== null
+                ))),
             ];
 
             foreach (($section['studentIds'] ?? []) as $studentId) {
@@ -303,13 +308,16 @@ function build_table_sql(
 
         $sql .= 'delete from public.portal_sections
                  where id <> all(' . $q($ids) . '::bigint[]);';
-        $sql .= 'insert into public.portal_sections (id, name, adviser_id)
-                 select id, name, adviser_id
+        $sql .= 'insert into public.portal_sections
+                   (id, name, adviser_id, faculty_ids)
+                 select id, name, adviser_id, faculty_ids
                  from json_to_recordset(' . $q(json_text($rows)) . ')
-                   as x(id bigint, name text, adviser_id bigint)
+                   as x(id bigint, name text, adviser_id bigint,
+                        faculty_ids bigint[])
                  on conflict (id) do update
                  set name = excluded.name,
-                     adviser_id = excluded.adviser_id;';
+                     adviser_id = excluded.adviser_id,
+                     faculty_ids = excluded.faculty_ids;';
         $sql .= 'delete from public.portal_section_students;';
         $sql .= 'insert into public.portal_section_students
                    (student_id, section_id)
@@ -487,6 +495,7 @@ select
     as state,
   (select coalesce(json_agg(json_build_object(
       'id', s.id, 'name', s.name, 'adviserId', s.adviser_id,
+      'facultyIds', to_json(s.faculty_ids),
       'studentIds', coalesce((
         select json_agg(m.student_id order by m.assigned_at, m.student_id)
         from public.portal_section_students m

@@ -1178,14 +1178,21 @@
     let ovr = [];
 
     function sectionOptions(selected) {
-      return db.sections.map(section =>
+      return mySections().map(section =>
         `<option value="${section.id}" ${Number(selected) === section.id ? 'selected' : ''}>${esc(section.name)}</option>`
       ).join('');
     }
 
+    // Faculty only work with students from the sections they are assigned to.
+    const mySectionStudents = () => Sections.studentIdsForFaculty(db, user.id);
+    const mySections = () => Sections.forFaculty(db, user.id);
+
     function studentOptions(selected) {
       const subject = subjectOfEd();
-      const ids = new Set(subject ? subject.studentIds : []);
+      const allowed = mySectionStudents();
+      const ids = new Set(
+        (subject ? subject.studentIds : []).filter(id => allowed.has(id))
+      );
 
       return db.users
         .filter(person => person.role === 'student' && ids.has(person.id))
@@ -1243,15 +1250,16 @@
 
     function addOverride(type) {
       const first = type === 'section'
-        ? db.sections[0]
+        ? mySections()[0]
         : db.users.find(person =>
             person.role === 'student' &&
+            mySectionStudents().has(person.id) &&
             (subjectOfEd()?.studentIds || []).includes(person.id)
           );
 
       if (!first) {
         return alert(type === 'section'
-          ? 'There are no sections yet.'
+          ? 'You are not assigned to any section yet.'
           : 'No students are enrolled in this course yet.');
       }
 
@@ -1321,6 +1329,7 @@
     // Students this exam applies to: enrolled in the course, or already attempted.
     function examStudents() {
       const subject = subjectOfEd();
+      const allowed = mySectionStudents();
       const ids = new Set(subject ? subject.studentIds : []);
 
       db.attempts.forEach(item => {
@@ -1328,7 +1337,9 @@
       });
 
       return db.users.filter(person =>
-        person.role === 'student' && ids.has(person.id)
+        person.role === 'student' &&
+        ids.has(person.id) &&
+        allowed.has(person.id)
       );
     }
 
@@ -1396,7 +1407,7 @@
       const keepSection = $('rt-section').value;
       const keepStudent = $('rt-student').value;
 
-      $('rt-section').innerHTML = db.sections.map(section =>
+      $('rt-section').innerHTML = mySections().map(section =>
         `<option value="${section.id}">${esc(section.name)} (${examStudents().filter(person => section.studentIds.includes(person.id)).length})</option>`
       ).join('') || '<option value="">No sections</option>';
 

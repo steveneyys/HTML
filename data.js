@@ -170,7 +170,9 @@ const DEFAULT_DB = {
   retakes: [],
 
   // Groups of students. Each section is
-  // { id, name, adviserId (faculty user id or null), studentIds: [] }.
+  // { id, name, adviserId (faculty user id or null), facultyIds: [], studentIds: [] }.
+  // facultyIds are the faculty members assigned to the section; they can only
+  // see the students (and attempts) of the sections they are assigned to.
   // Membership lives here (like subject.studentIds) rather than on the user
   // record, because the server keeps the users list under its own control.
   sections: []
@@ -187,6 +189,7 @@ function migrate(db) {
   db.sections = db.sections || [];
   db.sections.forEach(section => {
     section.studentIds = section.studentIds || [];
+    section.facultyIds = section.facultyIds || [];
     if (section.adviserId === undefined) section.adviserId = null;
   });
 
@@ -541,6 +544,20 @@ const Sections = {
 
     if (target) target.studentIds.push(studentId);
   },
+
+  // Sections a faculty member is assigned to.
+  forFaculty: (db, facultyId) =>
+    db.sections.filter(section =>
+      (section.facultyIds || []).includes(facultyId)
+    ),
+
+  // Ids of every student in the sections a faculty member is assigned to.
+  studentIdsForFaculty: (db, facultyId) =>
+    new Set(
+      Sections.forFaculty(db, facultyId).flatMap(section =>
+        section.studentIds
+      )
+    ),
 
   // Students that are still real, approved student accounts.
   count: (db, section) =>

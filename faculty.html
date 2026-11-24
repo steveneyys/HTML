@@ -97,6 +97,11 @@
       </button>
     </div>
 
+    <p id="no-section-note" class="card hidden" role="status">
+      You are not assigned to any section yet, so no students or attempts are
+      shown. Ask an administrator to assign you to a section.
+    </p>
+
     <div class="tabs">
       <button data-tab="courses" class="active"
         onclick="tab('courses')">
@@ -381,11 +386,17 @@
         )
       );
 
+    // Faculty only see students from the sections an admin assigned them to.
+    const mySectionStudents = () =>
+      Sections.studentIdsForFaculty(db, user.id);
+
     const myAttempts = () => {
       const ids = myExams().map(exam => exam.id);
+      const allowed = mySectionStudents();
 
       return db.attempts.filter(attempt =>
-        ids.includes(attempt.examId)
+        ids.includes(attempt.examId) &&
+        allowed.has(attempt.studentId)
       );
     };
 
@@ -411,6 +422,7 @@
     }
 
     function myStudents() {
+      const allowed = mySectionStudents();
       const ids = new Set(
         mySubjects().flatMap(subject => subject.studentIds)
       );
@@ -420,7 +432,9 @@
       });
 
       return db.users.filter(student =>
-        student.role === 'student' && ids.has(student.id)
+        student.role === 'student' &&
+        ids.has(student.id) &&
+        allowed.has(student.id)
       );
     }
 
@@ -431,11 +445,10 @@
       const keep = select.value || 'all';
 
       select.innerHTML =
-        '<option value="all">All sections</option>' +
-        db.sections.map(section =>
+        '<option value="all">All my sections</option>' +
+        Sections.forFaculty(db, user.id).map(section =>
           `<option value="${section.id}">${esc(section.name)}</option>`
-        ).join('') +
-        '<option value="none">No section</option>';
+        ).join('');
 
       select.value = [...select.options].some(o => o.value === keep)
         ? keep
@@ -461,6 +474,10 @@
     }
 
     function refreshAll() {
+      $('no-section-note').classList.toggle(
+        'hidden',
+        Sections.forFaculty(db, user.id).length > 0
+      );
       drawCourses();
       drawStudents();
       drawAttempts();
@@ -502,7 +519,7 @@
 
               <div class="muted">
                 ${exams.length} exam${exams.length === 1 ? '' : 's'} &middot;
-                ${item.studentIds.length} student${item.studentIds.length === 1 ? '' : 's'}
+                ${item.studentIds.filter(id => mySectionStudents().has(id)).length} student${item.studentIds.filter(id => mySectionStudents().has(id)).length === 1 ? '' : 's'}
               </div>
 
               <button class="btn" onclick="viewCourse(${item.id})">
@@ -529,6 +546,7 @@
               + Create New Exam
             </a>
           </div>
+          <br>
 
           <span class="badge">${esc(subject.code)}</span>
           <h2 style="margin:0">${esc(subject.name)}</h2>
@@ -622,8 +640,11 @@
     }
 
     function submissionRows(subject, exam) {
+      const allowed = mySectionStudents();
+
       const attempts = db.attempts.filter(
-        attempt => attempt.examId === exam.id
+        attempt => attempt.examId === exam.id &&
+          allowed.has(attempt.studentId)
       );
 
       const ids = new Set([
@@ -631,7 +652,7 @@
         ...attempts.map(attempt => attempt.studentId)
       ]);
 
-      return [...ids].map(id => {
+      return [...ids].filter(id => allowed.has(id)).map(id => {
         const student = db.users.find(item => item.id === id);
 
         const records = attempts
@@ -766,7 +787,7 @@
                 <h3>${esc(item.title)}</h3>
 
                 <p class="muted">
-                  ${db.attempts.filter(
+                  ${myAttempts().filter(
                     attempt => attempt.examId === item.id
                   ).length}
                   submitted attempts
@@ -860,17 +881,13 @@
 
             <select id="subs-section"
               onchange="submissionSection=this.value;drawSubs()">
-              <option value="all">All sections</option>
-              ${db.sections.map(section => `
+              <option value="all">All my sections</option>
+              ${Sections.forFaculty(db, user.id).map(section => `
                 <option value="${section.id}"
                   ${submissionSection === String(section.id) ? 'selected' : ''}>
                   ${esc(section.name)}
                 </option>
               `).join('')}
-              <option value="none"
-                ${submissionSection === 'none' ? 'selected' : ''}>
-                No section
-              </option>
             </select>
           </div>
 

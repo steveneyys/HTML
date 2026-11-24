@@ -229,6 +229,11 @@
           </div>
         </div>
 
+        <div>
+          <label>Assigned faculty <span class="muted" style="font-weight:400">(tick as many as you like)</span></label>
+          <div id="secf-faculty" class="bulk-secs"></div>
+        </div>
+
         <p id="secf-err" class="err hidden" role="alert"></p>
 
         <div class="row">
@@ -254,12 +259,30 @@
             <tr>
               <th>Name</th>
               <th>Adviser</th>
+              <th>Assigned Faculty</th>
               <th>Students</th>
               <th></th>
             </tr>
           </thead>
           <tbody id="sections-body"></tbody>
         </table>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-top:0">Assign Faculty to Sections</h3>
+        <p class="muted" style="margin-top:-8px">
+          Tick faculty and sections, then assign them all at once. Many faculty can share a section. Faculty can only see the students, and the attempts, of the sections they are assigned to.
+        </p>
+        <label>Faculty</label>
+        <div id="fb-faculty" class="bulk-secs"></div>
+        <label>Sections</label>
+        <div id="fb-sections" class="bulk-secs"></div>
+        <div class="bulk-actions">
+          <b id="fb-count"></b>
+          <span class="grow"></span>
+          <button class="btn ok sm" type="button" id="fb-add" onclick="facBulk(true)">Assign to sections</button>
+          <button class="btn ghost sm" type="button" id="fb-remove" onclick="facBulk(false)">Remove from sections</button>
+        </div>
       </div>
 
       <div class="card">
@@ -430,6 +453,13 @@
           <tr>
             <td><b>${esc(section.name)}</b></td>
             <td>${adviser ? esc(adviser.name) : '<span class="muted">None</span>'}</td>
+            <td>${
+              (section.facultyIds || [])
+                .map(id => db.users.find(person => person.id === id))
+                .filter(Boolean)
+                .map(person => esc(person.name))
+                .join(', ') || '<span class="muted">None</span>'
+            }</td>
             <td>${Sections.count(db, section)}</td>
             <td>
               <div class="actions" style="justify-content:flex-end">
@@ -455,6 +485,7 @@
         '<tr><td colspan="4" class="muted">No sections yet.</td></tr>';
 
       mountBulk();
+      drawFacBulk();
 
       $('assign-body').innerHTML = db.subjects.map(subject => {
         const assigned = subject.facultyIds
@@ -822,6 +853,17 @@
             >${esc(faculty.name)}</option>
           `).join('');
 
+      $('secf-faculty').innerHTML =
+        db.users
+          .filter(person => isApproved(person) && person.role === 'faculty')
+          .map(faculty => `
+            <label class="bulk-sec">
+              <input type="checkbox" name="secf-fac" value="${Number(faculty.id)}"
+                ${section && (section.facultyIds || []).includes(faculty.id) ? 'checked' : ''}>
+              ${esc(faculty.name)}
+            </label>
+          `).join('') || '<span class="muted">No faculty accounts yet.</span>';
+
       $('secf-err').textContent = '';
       $('secf-err').classList.add('hidden');
       $('section-form').classList.remove('hidden');
@@ -839,6 +881,9 @@
       const adviserId = $('secf-adviser').value
         ? Number($('secf-adviser').value)
         : null;
+
+      const facultyIds = [...document.querySelectorAll('input[name=secf-fac]:checked')]
+        .map(box => Number(box.value));
 
       const fail = text => {
         $('secf-err').textContent = text;
@@ -859,12 +904,13 @@
           id: Date.now(),
           name,
           adviserId,
+          facultyIds,
           studentIds: []
         });
       } else {
         Object.assign(
           db.sections.find(item => item.id === secEditing),
-          { name, adviserId }
+          { name, adviserId, facultyIds }
         );
       }
 
@@ -922,6 +968,61 @@
         bulkSections.redraw();
         bulkEnroll.redraw();
       }
+    }
+
+    /* ---------- Assign faculty to sections (many at once) ---------- */
+
+    const pickedFaculty = new Set();
+    const pickedSections = new Set();
+
+    function drawFacBulk() {
+      const faculty = db.users.filter(p => isApproved(p) && p.role === 'faculty');
+      [...pickedFaculty].forEach(id => { if (!faculty.some(f => f.id === id)) pickedFaculty.delete(id); });
+      [...pickedSections].forEach(id => { if (!db.sections.some(s => s.id === id)) pickedSections.delete(id); });
+
+      $('fb-faculty').innerHTML = faculty.map(f => `
+        <label class="bulk-sec ${pickedFaculty.has(f.id) ? 'on' : ''}">
+          <input type="checkbox" data-fb="f" value="${f.id}" ${pickedFaculty.has(f.id) ? 'checked' : ''}>
+          ${esc(f.name)}
+          <span class="muted">(${Sections.forFaculty(db, f.id).length} section${Sections.forFaculty(db, f.id).length === 1 ? '' : 's'})</span>
+        </label>`).join('') || '<span class="muted">No faculty accounts yet.</span>';
+
+      $('fb-sections').innerHTML = db.sections.map(s => `
+        <label class="bulk-sec ${pickedSections.has(s.id) ? 'on' : ''}">
+          <input type="checkbox" data-fb="s" value="${s.id}" ${pickedSections.has(s.id) ? 'checked' : ''}>
+          ${esc(s.name)}
+          <span class="muted">(${(s.facultyIds || []).length} faculty)</span>
+        </label>`).join('') || '<span class="muted">No sections yet.</span>';
+
+      $('fb-count').textContent =
+        `${pickedFaculty.size} faculty · ${pickedSections.size} section${pickedSections.size === 1 ? '' : 's'} selected`;
+      const none = !pickedFaculty.size || !pickedSections.size;
+      $('fb-add').disabled = none;
+      $('fb-remove').disabled = none;
+    }
+
+    document.addEventListener('change', event => {
+      const box = event.target.closest && event.target.closest('input[data-fb]');
+      if (!box) return;
+      const set = box.dataset.fb === 'f' ? pickedFaculty : pickedSections;
+      box.checked ? set.add(Number(box.value)) : set.delete(Number(box.value));
+      drawFacBulk();
+    });
+
+    function facBulk(add) {
+      db.sections.filter(s => pickedSections.has(s.id)).forEach(section => {
+        const current = new Set(section.facultyIds || []);
+        pickedFaculty.forEach(id => add ? current.add(id) : current.delete(id));
+        section.facultyIds = [...current];
+      });
+
+      const f = pickedFaculty.size, s = pickedSections.size;
+      if (!DB.save(db)) { alert('Could not save changes to Supabase.'); return; }
+
+      pickedFaculty.clear();
+      pickedSections.clear();
+      alert(`${f} faculty ${add ? 'assigned to' : 'removed from'} ${s} section${s === 1 ? '' : 's'}.`);
+      draw();
     }
 
     function setSection(studentId, value) {
