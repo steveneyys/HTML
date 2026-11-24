@@ -297,7 +297,7 @@
                   `;
                 } else if (schedule.state !== 'open') {
                   action = `
-                    <span class="chip">
+                    <span class="chip warn">
                       ${schedule.state === 'closed' ? 'Closed' : 'Not open yet'}
                     </span>
                   `;
@@ -361,8 +361,6 @@
             <div class="row">
               <button class="btn ghost sm" type="button" onclick="backToSubjects()">&larr; Back to subjects</button>
             </div>
-            <br>
-
             <span class="badge">${esc(current.code)}</span>
             <h3 style="margin:0">${esc(current.name)} — Exams</h3>
             <p class="muted" style="margin:0">${esc(current.description || '')}</p>

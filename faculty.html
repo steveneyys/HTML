@@ -280,7 +280,6 @@
           <label for="report-sort">Sort by</label>
           <select id="report-sort" onchange="drawReport(true)">
             <option value="date">Newest first</option>
-            <option value="section">Section (A–Z)</option>
             <option value="name">Student name</option>
             <option value="high">Highest score</option>
             <option value="low">Lowest score</option>
@@ -530,7 +529,6 @@
               + Create New Exam
             </a>
           </div>
-          <br>
 
           <span class="badge">${esc(subject.code)}</span>
           <h2 style="margin:0">${esc(subject.name)}</h2>
@@ -601,6 +599,7 @@
     let submissionExamId = null;
     let submissionSort = 'az';
     let submissionFilter = 'all';
+    let submissionSection = 'all';   // 'all', 'none' or a section id
 
     function openSubmissions() {
       tab('subs');
@@ -611,12 +610,14 @@
       submissionSubjectId = id;
       submissionExamId = null;
       submissionFilter = 'all';
+      submissionSection = 'all';
       drawSubs();
     }
 
     function selectSubmissionExam(id) {
       submissionExamId = id;
       submissionFilter = 'all';
+      submissionSection = 'all';
       drawSubs();
     }
 
@@ -644,17 +645,18 @@
           id,
           name: student?.name || 'Removed student #' + id,
           username: student?.username || '',
+          section: Sections.of(db, id)?.name || '',
           enrolled: (subject.studentIds || []).includes(id),
           attempts: records.length,
           latest: records[0] || null
         };
       }).sort((a, b) => {
-        const order = a.name.localeCompare(b.name, 'en', {
+        const byName = a.name.localeCompare(b.name, 'en', {
           sensitivity: 'base',
           numeric: true
         }) || a.id - b.id;
 
-        return submissionSort === 'za' ? -order : order;
+        return submissionSort === 'za' ? -byName : byName;
       });
     }
 
@@ -792,12 +794,15 @@
       const submittedCount = rows.filter(row => row.latest).length;
 
       const visible = rows.filter(row =>
-        submissionFilter === 'all' ||
         (
-          submissionFilter === 'submitted'
-            ? !!row.latest
-            : !row.latest
-        )
+          submissionFilter === 'all' ||
+          (
+            submissionFilter === 'submitted'
+              ? !!row.latest
+              : !row.latest
+          )
+        ) &&
+        matchesSection(row.id, submissionSection)
       );
 
       $('subs').innerHTML = `
@@ -846,6 +851,26 @@
                 ${submissionSort === 'za' ? 'selected' : ''}>
                 Z–A
               </option>
+
+            </select>
+          </div>
+
+          <div>
+            <label for="subs-section">Show section</label>
+
+            <select id="subs-section"
+              onchange="submissionSection=this.value;drawSubs()">
+              <option value="all">All sections</option>
+              ${db.sections.map(section => `
+                <option value="${section.id}"
+                  ${submissionSection === String(section.id) ? 'selected' : ''}>
+                  ${esc(section.name)}
+                </option>
+              `).join('')}
+              <option value="none"
+                ${submissionSection === 'none' ? 'selected' : ''}>
+                No section
+              </option>
             </select>
           </div>
 
@@ -877,12 +902,14 @@
             <thead>
               <tr>
                 <th>Student</th>
+                <th>Section</th>
                 <th>Submission</th>
                 <th>Score</th>
                 <th>%</th>
                 <th>Result</th>
                 <th>Attempts</th>
                 <th>Last submitted</th>
+                <th></th>
               </tr>
             </thead>
 
@@ -901,6 +928,12 @@
                           Previously enrolled
                         </small>
                       `}
+                    </td>
+
+                    <td>
+                      ${row.section
+                        ? esc(row.section)
+                        : '<span class="muted">—</span>'}
                     </td>
 
                     <td>
@@ -930,11 +963,20 @@
                     <td>${row.attempts}</td>
 
                     <td>${attempt ? esc(attempt.date) : '—'}</td>
+
+                    <td style="text-align:right">
+                      ${row.attempts
+                        ? `<button class="btn sm" type="button"
+                             onclick="viewStudentExamAttempts(${row.id})">
+                             View attempts
+                           </button>`
+                        : ''}
+                    </td>
                   </tr>
                 `;
               }).join('') || `
                 <tr>
-                  <td colspan="7" class="muted">
+                  <td colspan="9" class="muted">
                     No students match this view.
                   </td>
                 </tr>
@@ -1007,6 +1049,7 @@
 
     // When set, the Exam Attempts tab shows only this student's attempts.
     let attStudent = null;
+    let attBack = 'reports';   // where "Back" returns: 'reports' or 'subs'
 
     function openAttempts() {
       syncDatabase();
@@ -1022,6 +1065,7 @@
 
       syncDatabase();
       attStudent = attempt.studentId;
+      attBack = 'reports';
 
       drawAttempts();                         // rebuilds the dropdowns
       $('att-section').value = 'all';
@@ -1032,6 +1076,34 @@
       drawAttempts();
       tab('attempts');
       window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    // "View attempts" button on a student row in Results > exam.
+    function viewStudentExamAttempts(studentId) {
+      if (!submissionExamId) return;
+
+      syncDatabase();
+      attStudent = studentId;
+      attBack = 'subs';
+
+      drawAttempts();                         // rebuilds the dropdowns
+      $('att-section').value = 'all';
+      $('att-exam').value = String(submissionExamId);
+      $('att-status').value = '';
+      $('att-search').value = '';
+
+      drawAttempts();
+      tab('attempts');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function backFromAttempts() {
+      if (attBack === 'subs') {
+        attStudent = null;
+        openSubmissions();
+      } else {
+        openReports();
+      }
     }
 
     function clearAttStudent() {
@@ -1085,7 +1157,8 @@
             `<button class="btn ghost sm" type="button" ` +
             `onclick="clearAttStudent()">Show all students</button>` +
             ` <button class="btn ghost sm" type="button" ` +
-            `onclick="openReports()">&larr; Back to results</button>`
+            `onclick="backFromAttempts()">&larr; Back to ` +
+            `${attBack === 'subs' ? 'results' : 'grade reports'}</button>`
           : '.');
 
       $('att-body').innerHTML = rows.map(attempt => {
